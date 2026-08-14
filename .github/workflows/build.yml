@@ -1,0 +1,97 @@
+name: Build LanguageBarrier RTL
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.configuration }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration:
+          - dinput8-Release
+          # Uncomment this entry if the target patch specifically loads cryptbase.dll.
+          # - cryptbase-Release
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install vcpkg and manifest dependencies
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+            if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+          }
+          & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg MSBuild integration failed" }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x86-windows --x-manifest-root "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+
+      - name: Build Win32 DLL
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: |
+          $solution = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier.sln"
+          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=Win32 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed" }
+
+      - name: Collect build output
+        shell: pwsh
+        run: |
+          $artifact = Join-Path $env:GITHUB_WORKSPACE "artifact\${{ matrix.configuration }}"
+          New-Item -ItemType Directory -Force -Path $artifact | Out-Null
+
+          $targetName = if ("${{ matrix.configuration }}" -like "cryptbase-*") { "cryptbase.dll" } else { "dinput8.dll" }
+          $dll = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -File -Filter $targetName |
+            Where-Object { $_.FullName -notmatch "\\vcpkg\\" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if ($null -eq $dll) { throw "Could not find $targetName after the build" }
+          # Preserve the complete Visual Studio output directory. The project
+          # pre-build step creates languagebarrier\ and copies VSFilter.dll.
+          Copy-Item (Join-Path $dll.Directory.FullName "*") $artifact -Recurse -Force
+
+          $license = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\LICENSE"
+          $thirdParty = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\THIRDPARTY.LB.txt"
+          if (Test-Path $license) { Copy-Item $license (Join-Path $artifact "LICENSE") -Force }
+          if (Test-Path $thirdParty) { Copy-Item $thirdParty (Join-Path $artifact "THIRDPARTY.LB.txt") -Force }
+
+          @"
+          Build configuration: ${{ matrix.configuration }}
+          Architecture: Win32 / x86
+          RTL option: patch.rtlDialogue=true
+          "@ | Set-Content (Join-Path $artifact "BUILD_INFO.txt")
+
+          Get-ChildItem -Path $artifact -File | Format-Table Name, Length
+
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LanguageBarrier-${{ matrix.configuration }}
+          path: artifact/${{ matrix.configuration }}
+          if-no-files-found: error
+          retention-days: 14
