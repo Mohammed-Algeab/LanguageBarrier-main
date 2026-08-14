@@ -3,6 +3,7 @@
 #include <set>
 #include <cstdint>
 #include "TextRendering.h"
+#include "GameText.h"
 #include "Config.h"
 #include <iostream>
 #include <string>
@@ -94,6 +95,10 @@ void dialogueWordwrapInit() {
 }
 
 void dlgWordwrapGenerateMaskHook(int unk0) {
+  DIALOGUE_PAGE_HAS_NAME =
+      (*gameExeDlgWordwrapLength > 0 &&
+       gameExeDlgWordwrapString[0] == name_start);
+
   int pos = 0;
 
   bool insideRubyBase = false, insideRubyText = false;

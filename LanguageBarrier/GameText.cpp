@@ -1414,16 +1414,19 @@ int __cdecl dialogueLayoutRelatedHook(int unk0, int* unk1, int* unk2, int unk3,
 }
 
 template <typename DialoguePage>
-bool isLastDialogueLine(DialoguePage* page, int fontNumber, int glyphIndex) {
-  const int lineY = page->charDisplayY[glyphIndex];
-  int lastLineY = -0x7FFFFFFF;
+bool isSpeakerNameLine(DialoguePage* page, int fontNumber, int glyphIndex) {
+  if (!DIALOGUE_PAGE_HAS_NAME)
+    return false;
+
+  int firstLineY = 0x7FFFFFFF;
   for (int j = 0; j < page->pageLength; ++j) {
     if (fontNumber == page->fontNumber[j] &&
-        page->charDisplayY[j] > lastLineY) {
-      lastLineY = page->charDisplayY[j];
+        page->charDisplayY[j] < firstLineY) {
+      firstLineY = page->charDisplayY[j];
     }
   }
-  return lineY == lastLineY;
+  return firstLineY != 0x7FFFFFFF &&
+         page->charDisplayY[glyphIndex] == firstLineY;
 }
 
 template <typename DialoguePage>
@@ -1470,8 +1473,8 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
             (page->charDisplayY[i] + yOffset) * COORDS_MULTIPLIER;             \
         if (UseRTLDialogue &&                                                     \
             !(RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
-              isLastDialogueLine(page, fontNumber, i)))                            \
-          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);       \
+              isSpeakerNameLine(page, fontNumber, i)))                             \
+          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
                                                                                \
         uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
                                                                                \
