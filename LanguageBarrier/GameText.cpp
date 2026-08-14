@@ -741,6 +741,9 @@ int __cdecl gslFillHook(int id, int a1, int a2, int a3, int a4, int r, int g,
 GameID currentGame;
 bool UseNewTextSystem = false;
 bool UseRTLDialogue = false;
+// Logical (pre-COORDS_MULTIPLIER) right edge for RTL dialogue lines.
+// Zero keeps the automatic per-line mirror behavior.
+float RTL_DIALOGUE_RIGHT_X = 0.0f;
 
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
@@ -757,6 +760,8 @@ void gameTextInit() {
   if (config["patch"].count("useNewTextSystem") == 1)
     UseNewTextSystem = config["patch"]["useNewTextSystem"].get<bool>();
   UseRTLDialogue = config["patch"].value("rtlDialogue", false);
+  RTL_DIALOGUE_RIGHT_X =
+      config["patch"].value("rtlDialogueRightX", 0.0f);
 
   if (currentGame == RNE || currentGame == RND) {
     fixLeadingZeroes();
@@ -1428,7 +1433,11 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
       (page->charDisplayX[glyphIndex] + xOffset) * COORDS_MULTIPLIER;
   const float glyphWidth =
       page->glyphDisplayWidth[glyphIndex] * COORDS_MULTIPLIER;
-  return lineLeft + lineRight - glyphX - glyphWidth;
+  const float mirrorRight =
+      RTL_DIALOGUE_RIGHT_X > 0.0f
+          ? RTL_DIALOGUE_RIGHT_X * COORDS_MULTIPLIER
+          : lineRight;
+  return lineLeft + mirrorRight - glyphX - glyphWidth;
 }
 
 #define DEF_DRAW_DIALOGUE_HOOK(funcName, pageType)                             \

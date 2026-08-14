@@ -25,11 +25,14 @@ The source includes an opt-in `patch.rtlDialogue` mode for the classic dialogue-
 ```json
 {
   "patch": {
-    "rtlDialogue": true
+    "rtlDialogue": true,
+    "rtlDialogueRightX": 1200
   }
 }
 ```
 
 When enabled, the main dialogue hook keeps the SC3 text stream and the page iteration order unchanged. It mirrors each glyph horizontally inside the complete line bounds, so the first logical glyph is placed at the right edge and later glyphs extend toward the left. This is intentionally different from reversing the translated string.
+
+`rtlDialogueRightX` is an optional coordinate in the game's logical coordinate system before `coordsMultiplier` is applied. Start with `1200` for STEINS;GATE HD; increase it gradually to `1220` or `1240` if the line still starts too far left, or decrease it if the text crosses the right edge. Omitting the key or setting it to `0` restores the automatic per-line mirror behavior.
 
 The mode is disabled by default and is applied only by the generic `DEF_DRAW_DIALOGUE_HOOK` path. It does not alter auxiliary mail, backlog, phone, or newer RNE/RND text paths. It also does not provide Arabic contextual shaping by itself; the configured font must already be suitable for the current glyph pipeline. If Arabic joining forms are not rendered correctly, a separate shaping stage using Uniscribe or HarfBuzz will be required before glyph IDs reach the renderer.
