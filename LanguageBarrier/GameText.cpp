@@ -744,6 +744,7 @@ bool UseRTLDialogue = false;
 // Logical (pre-COORDS_MULTIPLIER) right edge for RTL dialogue lines.
 // Zero keeps the automatic per-line mirror behavior.
 float RTL_DIALOGUE_RIGHT_X = 0.0f;
+bool RTL_DIALOGUE_KEEP_NAME_LINE = false;
 
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
@@ -762,6 +763,8 @@ void gameTextInit() {
   UseRTLDialogue = config["patch"].value("rtlDialogue", false);
   RTL_DIALOGUE_RIGHT_X =
       config["patch"].value("rtlDialogueRightX", 0.0f);
+  RTL_DIALOGUE_KEEP_NAME_LINE =
+      config["patch"].value("rtlDialogueKeepNameLine", false);
 
   if (currentGame == RNE || currentGame == RND) {
     fixLeadingZeroes();
@@ -1411,6 +1414,19 @@ int __cdecl dialogueLayoutRelatedHook(int unk0, int* unk1, int* unk2, int unk3,
 }
 
 template <typename DialoguePage>
+bool isLastDialogueLine(DialoguePage* page, int fontNumber, int glyphIndex) {
+  const int lineY = page->charDisplayY[glyphIndex];
+  int lastLineY = -0x7FFFFFFF;
+  for (int j = 0; j < page->pageLength; ++j) {
+    if (fontNumber == page->fontNumber[j] &&
+        page->charDisplayY[j] > lastLineY) {
+      lastLineY = page->charDisplayY[j];
+    }
+  }
+  return lineY == lastLineY;
+}
+
+template <typename DialoguePage>
 float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                            int xOffset) {
   const int lineY = page->charDisplayY[glyphIndex];
@@ -1452,8 +1468,10 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
             (page->charDisplayX[i] + xOffset) * COORDS_MULTIPLIER;             \
         int displayStartY =                                                    \
             (page->charDisplayY[i] + yOffset) * COORDS_MULTIPLIER;             \
-        if (UseRTLDialogue)                                                    \
-          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);  \
+        if (UseRTLDialogue &&                                                     \
+            !(RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
+              isLastDialogueLine(page, fontNumber, i)))                            \
+          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);       \
                                                                                \
         uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
                                                                                \
