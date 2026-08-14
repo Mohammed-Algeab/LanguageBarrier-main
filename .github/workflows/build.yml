@@ -56,7 +56,7 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         run: |
           $solution = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier.sln"
-          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=Win32 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
+          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=x86 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed" }
 
       - name: Collect build output
