@@ -3,6 +3,7 @@
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
     "rtlDialogueKeepNameLine": true,
-    "rtlDialogueMirrorGlyphs": false
+    "rtlDialogueMirrorGlyphs": false,
+    "rtlDialogueFlowRTL": true
   }
 }

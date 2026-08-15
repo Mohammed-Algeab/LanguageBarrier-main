@@ -28,14 +28,25 @@ The source includes an opt-in `patch.rtlDialogue` mode for the classic dialogue-
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
     "rtlDialogueKeepNameLine": true,
-    "rtlDialogueMirrorGlyphs": false
+    "rtlDialogueMirrorGlyphs": false,
+    "rtlDialogueFlowRTL": true
   }
 }
 ```
 
-When enabled, the main dialogue hook keeps the SC3 text stream and the page iteration order unchanged. With `rtlDialogueMirrorGlyphs: true`, it mirrors each glyph horizontally inside the complete line bounds, so the first logical glyph is placed at the right edge and later glyphs extend toward the left. With `rtlDialogueMirrorGlyphs: false`, it preserves the glyph order supplied by the script and shifts the whole line so its right edge reaches `rtlDialogueRightX`; this is the correct mode when the translated script has already been manually reversed for the Backlog.
+When enabled, the main dialogue hook keeps the SC3 text stream and page iteration order unchanged. The two placement controls are independent: `rtlDialogueMirrorGlyphs` decides whether glyph positions are mirrored, while `rtlDialogueFlowRTL` decides whether the renderer consumes the page glyphs from the configured right edge and advances toward the left.
 
-`rtlDialogueRightX` is an optional coordinate in the game's logical coordinate system before `coordsMultiplier` is applied. Start with `1200` for STEINS;GATE HD; increase it gradually to `1220` or `1240` if the line still starts too far left, or decrease it if the text crosses the right edge. Omitting the key or setting it to `0` restores the automatic per-line mirror behavior. `rtlDialogueKeepNameLine` first requires the dialogue parser's `name_start` marker, then skips the last Y-line because that is where the speaker name is laid out in the tested STEINS;GATE page. When no name marker exists, no line is skipped and all dialogue lines remain RTL.
+The three useful combinations are:
 
-The mode is disabled by default and is applied only by the generic `DEF_DRAW_DIALOGUE_HOOK` path. For a script that is already prepared in the visual order required by the Backlog, use `rtlDialogueMirrorGlyphs: false` to avoid a second visual reversal. For a script kept in logical order, use `rtlDialogueMirrorGlyphs: true`.
+| Settings | Rendering behavior | Use when |
+|---|---|---|
+| `rtlDialogueMirrorGlyphs: true` | Mirrors each glyph's position inside the line; the first page glyph is placed on the right and later glyphs extend left. | The script is still in logical, non-reversed order. |
+| `rtlDialogueMirrorGlyphs: false` and `rtlDialogueFlowRTL: true` | Does not mirror glyph identities or their source order; it places the first page glyph at the right and advances left for each following glyph. | The script was already manually reversed for the Backlog. This is the recommended mode for the current Arabic workflow. |
+| `rtlDialogueMirrorGlyphs: false` and `rtlDialogueFlowRTL: false` | Keeps the original left-to-right glyph positions and only shifts the complete line toward the configured right edge. | Compatibility/testing, or when only right alignment is wanted. |
+
+The new flow mode changes only the X placement; it does not reverse the glyph code points a second time. `rtlDialogueKeepNameLine` still skips the speaker-name Y-line when `name_start` was detected, while nameless dialogue pages remain fully eligible for RTL placement.
+
+`rtlDialogueRightX` is an optional coordinate in the game's logical coordinate system before `coordsMultiplier` is applied. Start with `1200` for STEINS;GATE HD; increase it gradually to `1220` or `1240` if the line still starts too far left, or decrease it if the text crosses the right edge. Omitting the key or setting it to `0` uses the line's current right edge instead of a fixed edge. `rtlDialogueKeepNameLine` first requires the dialogue parser's `name_start` marker, then skips the greatest-Y line for that confirmed named page. When no name marker exists, no line is skipped and all dialogue lines remain eligible for RTL placement.
+
+The mode is disabled by default and is applied only by the generic `DEF_DRAW_DIALOGUE_HOOK` path. For a script that is already prepared in the visual order required by the Backlog, use `rtlDialogueMirrorGlyphs: false` together with `rtlDialogueFlowRTL: true` to avoid a second visual reversal while still drawing from right to left. For a script kept in logical order, use `rtlDialogueMirrorGlyphs: true`; `rtlDialogueFlowRTL` is then irrelevant because the mirrored-position path is selected.
  It does not alter auxiliary mail, backlog, phone, or newer RNE/RND text paths. It also does not provide Arabic contextual shaping by itself; the configured font must already be suitable for the current glyph pipeline. If Arabic joining forms are not rendered correctly, a separate shaping stage using Uniscribe or HarfBuzz will be required before glyph IDs reach the renderer.

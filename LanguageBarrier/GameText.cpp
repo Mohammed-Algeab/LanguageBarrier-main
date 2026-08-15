@@ -745,9 +745,12 @@ bool UseRTLDialogue = false;
 // Zero keeps the automatic per-line mirror behavior.
 float RTL_DIALOGUE_RIGHT_X = 0.0f;
 bool RTL_DIALOGUE_KEEP_NAME_LINE = false;
-// When true, mirror glyph positions; when false, preserve script order and
-// only shift each dialogue line to the configured right edge.
+// When true, mirror glyph positions. When false, keep the script glyph
+// sequence and use an independent flow direction for placement.
 bool RTL_DIALOGUE_MIRROR_GLYPHS = true;
+// When true, placement consumes glyphs from the page order at the right edge
+// and advances left. This is independent from glyph mirroring.
+bool RTL_DIALOGUE_FLOW_RTL = false;
 
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
@@ -770,6 +773,8 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueKeepNameLine", false);
   RTL_DIALOGUE_MIRROR_GLYPHS =
       config["patch"].value("rtlDialogueMirrorGlyphs", true);
+  RTL_DIALOGUE_FLOW_RTL =
+      config["patch"].value("rtlDialogueFlowRTL", false);
 
   if (currentGame == RNE || currentGame == RND) {
     fixLeadingZeroes();
@@ -1464,6 +1469,34 @@ float alignDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
 }
 
 template <typename DialoguePage>
+float flowDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
+                         int xOffset) {
+  const int lineY = page->charDisplayY[glyphIndex];
+  float lineRight = -1.0e30f;
+  for (int j = 0; j < page->pageLength; ++j) {
+    if (fontNumber != page->fontNumber[j] || page->charDisplayY[j] != lineY)
+      continue;
+    const float glyphRight =
+        (page->charDisplayX[j] + xOffset) * COORDS_MULTIPLIER +
+        page->glyphDisplayWidth[j] * COORDS_MULTIPLIER;
+    if (glyphRight > lineRight) lineRight = glyphRight;
+  }
+  if (lineRight == -1.0e30f)
+    return (page->charDisplayX[glyphIndex] + xOffset) * COORDS_MULTIPLIER;
+
+  const float targetRight =
+      RTL_DIALOGUE_RIGHT_X > 0.0f
+          ? RTL_DIALOGUE_RIGHT_X * COORDS_MULTIPLIER
+          : lineRight;
+  float consumedWidth = 0.0f;
+  for (int j = 0; j <= glyphIndex; ++j) {
+    if (fontNumber == page->fontNumber[j] && page->charDisplayY[j] == lineY)
+      consumedWidth += page->glyphDisplayWidth[j] * COORDS_MULTIPLIER;
+  }
+  return targetRight - consumedWidth;
+}
+
+template <typename DialoguePage>
 float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                            int xOffset) {
   const int lineY = page->charDisplayY[glyphIndex];
@@ -1511,7 +1544,9 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
           displayStartX =                                                        \
               RTL_DIALOGUE_MIRROR_GLYPHS                                        \
                   ? mirrorDialogueGlyphX(page, fontNumber, i, xOffset)            \
-                  : alignDialogueGlyphX(page, fontNumber, i, xOffset);           \
+                  : (RTL_DIALOGUE_FLOW_RTL                                     \
+                         ? flowDialogueGlyphX(page, fontNumber, i, xOffset)       \
+                         : alignDialogueGlyphX(page, fontNumber, i, xOffset));     \
         }                                                                         \
                                                                                \
         uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
