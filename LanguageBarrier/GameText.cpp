@@ -1527,7 +1527,7 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         if (UseRTLDialogue && !keepNameLine)                                      \
           displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
                                                                                \
-        uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
+        uint32_t _opacity = (page->charDisplayOpacity[renderIndex] * opacity) >> 8; \
                                                                                \
         if (page->charOutlineColor[i] != -1) {                                 \
           gameExeDrawGlyph(                                                    \
