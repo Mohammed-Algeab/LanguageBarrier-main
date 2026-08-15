@@ -2,6 +2,7 @@
 #include <fstream>
 #include <list>
 #include <sstream>
+#include <utility>
 #include <vector>
 #include <intrin.h>
 #include "Config.h"
@@ -749,6 +750,14 @@ bool RTL_DIALOGUE_KEEP_NAME_LINE = false;
 // Backlog, and every non-dialogue renderer remain unchanged.
 bool RTL_DIALOGUE_REVERSE_TEXT = false;
 
+// Temporary diagnostics for the RTL dialogue path. Disabled by default and
+// capped to a single page / a bounded number of lines so it cannot flood
+// the log. Safe to leave declared even when unused.
+bool RTL_DIALOGUE_DEBUG_LOG = false;
+int RTL_DIALOGUE_DEBUG_MAX_LINES = 200;
+static int rtlDialogueDebugPageLogged = -1;
+static int rtlDialogueDebugLinesLogged = 0;
+
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
     if (config["gamedef"]["dialoguePageVersion"].get<std::string>() == "rn") {
@@ -770,6 +779,9 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueKeepNameLine", false);
   RTL_DIALOGUE_REVERSE_TEXT =
       config["patch"].value("rtlDialogueReverseText", false);
+  RTL_DIALOGUE_DEBUG_LOG = config["patch"].value("rtlDialogueDebugLog", false);
+  RTL_DIALOGUE_DEBUG_MAX_LINES =
+      config["patch"].value("rtlDialogueDebugMaxLines", 200);
   {
     std::stringstream rtlLog;
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
@@ -1506,11 +1518,102 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
   return lineLeft + mirrorRight - glyphX - glyphWidth;
 }
 
+// Logs one line per glyph, for the first dialogue page seen after the flag
+// is enabled, capped at RTL_DIALOGUE_DEBUG_MAX_LINES total lines so a busy
+// page cannot flood the log file. No-op unless RTL_DIALOGUE_DEBUG_LOG is set
+// in patchdef.json. Prints both the "i" (destination slot) and "renderIndex"
+// (borrowed source identity) values for every field that participates in
+// the RTL dialogue draw path, so a mismatch between them is visible directly
+// in the log instead of only on screen.
+template <typename DialoguePage>
+void logRtlDialogueDebugGlyph(DialoguePage* page, int pageNumber,
+                              int fontNumber, int i, int renderIndex,
+                              bool keepNameLine) {
+  if (!RTL_DIALOGUE_DEBUG_LOG) return;
+  if (rtlDialogueDebugPageLogged == -1)
+    rtlDialogueDebugPageLogged = pageNumber;
+  if (pageNumber != rtlDialogueDebugPageLogged) return;
+  if (rtlDialogueDebugLinesLogged >= RTL_DIALOGUE_DEBUG_MAX_LINES) return;
+  rtlDialogueDebugLinesLogged++;
+
+  std::stringstream s;
+  s << "[RTL-DBG] page=" << pageNumber << " font=" << fontNumber
+    << " i=" << i << " renderIndex=" << renderIndex
+    << " nameLine=" << (keepNameLine ? 1 : 0) << " X=" << page->charDisplayX[i]
+    << " Y=" << page->charDisplayY[i]
+    << " opacity[i]=" << (int)page->charDisplayOpacity[i]
+    << " opacity[render]=" << (int)page->charDisplayOpacity[renderIndex]
+    << " col[i]=" << (int)page->glyphCol[i]
+    << " col[render]=" << (int)page->glyphCol[renderIndex]
+    << " row[i]=" << (int)page->glyphRow[i]
+    << " row[render]=" << (int)page->glyphRow[renderIndex]
+    << " origW[i]=" << (int)page->glyphOrigWidth[i]
+    << " origW[render]=" << (int)page->glyphOrigWidth[renderIndex]
+    << " origH[i]=" << (int)page->glyphOrigHeight[i]
+    << " origH[render]=" << (int)page->glyphOrigHeight[renderIndex]
+    << " dispW[i]=" << page->glyphDisplayWidth[i]
+    << " dispW[render]=" << page->glyphDisplayWidth[renderIndex]
+    << " dispH[i]=" << page->glyphDisplayHeight[i]
+    << " dispH[render]=" << page->glyphDisplayHeight[renderIndex]
+    << " color[i]=" << page->charColor[i]
+    << " color[render]=" << page->charColor[renderIndex]
+    << " outline[i]=" << page->charOutlineColor[i]
+    << " outline[render]=" << page->charOutlineColor[renderIndex];
+  LanguageBarrierLog(s.str());
+}
+
+// Logs, once per page, every distinct (fontNumber, charDisplayY) line group
+// found in the page, how many glyphs fall in it, and whether it was excluded
+// from mirroring as the speaker-name line. Lets you confirm line grouping
+// and name_start handling without stepping through a debugger.
+template <typename DialoguePage>
+void logRtlDialogueDebugLineGroups(DialoguePage* page, int pageNumber) {
+  if (!RTL_DIALOGUE_DEBUG_LOG) return;
+  if (rtlDialogueDebugPageLogged != -1 && pageNumber != rtlDialogueDebugPageLogged)
+    return;
+  if (rtlDialogueDebugLinesLogged >= RTL_DIALOGUE_DEBUG_MAX_LINES) return;
+
+  std::stringstream header;
+  header << "[RTL-DBG] ---- page=" << pageNumber
+         << " pageLength=" << page->pageLength
+         << " DIALOGUE_PAGE_HAS_NAME=" << (DIALOGUE_PAGE_HAS_NAME ? 1 : 0)
+         << " ----";
+  LanguageBarrierLog(header.str());
+
+  std::vector<std::pair<int, int>> seenLineKeys;  // (fontNumber, y)
+  for (int j = 0; j < page->pageLength; ++j) {
+    const int y = page->charDisplayY[j];
+    const int f = page->fontNumber[j];
+    bool alreadySeen = false;
+    for (auto& key : seenLineKeys) {
+      if (key.first == f && key.second == y) {
+        alreadySeen = true;
+        break;
+      }
+    }
+    if (alreadySeen) continue;
+    seenLineKeys.push_back({f, y});
+
+    int count = 0;
+    for (int k = 0; k < page->pageLength; ++k)
+      if (page->fontNumber[k] == f && page->charDisplayY[k] == y) count++;
+
+    const bool isNameLine =
+        RTL_DIALOGUE_KEEP_NAME_LINE && isSpeakerNameLine(page, f, j);
+
+    std::stringstream s;
+    s << "[RTL-DBG] line font=" << f << " Y=" << y << " glyphCount=" << count
+      << " excludedAsNameLine=" << (isNameLine ? 1 : 0);
+    LanguageBarrierLog(s.str());
+  }
+}
+
 #define DEF_DRAW_DIALOGUE_HOOK(funcName, pageType)                             \
                                                                                \
   void __cdecl funcName(int fontNumber, int pageNumber, uint32_t opacity,      \
                         int xOffset, int yOffset) {                            \
     pageType* page = &gameExeDialoguePages_##pageType[pageNumber];             \
+    logRtlDialogueDebugLineGroups(page, pageNumber);                           \
                                                                                \
     for (int i = 0; i < page->pageLength; i++) {                               \
       if (fontNumber == page->fontNumber[i]) {                                 \
@@ -1528,8 +1631,16 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
           displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
                                                                                \
         uint32_t _opacity = (page->charDisplayOpacity[renderIndex] * opacity) >> 8; \
+        /* Destination box size and color/outline must follow the SAME     */ \
+        /* index as the borrowed source cell (renderIndex), never the      */ \
+        /* visual slot index i -- otherwise a glyph's natural aspect ratio */ \
+        /* gets stretched/squeezed into a box sized for a different glyph. */ \
+        const int16_t dispW = page->glyphDisplayWidth[renderIndex];            \
+        const int16_t dispH = page->glyphDisplayHeight[renderIndex];           \
+        logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, renderIndex, \
+                                 keepNameLine);                                \
                                                                                \
-        if (page->charOutlineColor[i] != -1) {                                 \
+        if (page->charOutlineColor[renderIndex] != -1) {                       \
           gameExeDrawGlyph(                                                    \
               OUTLINE_TEXTURE_ID,                                              \
               OUTLINE_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER, \
@@ -1540,13 +1651,9 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                   (2 * OUTLINE_PADDING),                                       \
               displayStartX - OUTLINE_PADDING,                                 \
               displayStartY - OUTLINE_PADDING,                                 \
-              displayStartX +                                                  \
-                  (COORDS_MULTIPLIER * page->glyphDisplayWidth[i]) +           \
-                  OUTLINE_PADDING,                                             \
-              displayStartY +                                                  \
-                  (COORDS_MULTIPLIER * page->glyphDisplayHeight[i]) +          \
-                  OUTLINE_PADDING,                                             \
-              page->charOutlineColor[i], _opacity);                            \
+              displayStartX + (COORDS_MULTIPLIER * dispW) + OUTLINE_PADDING,   \
+              displayStartY + (COORDS_MULTIPLIER * dispH) + OUTLINE_PADDING,   \
+              page->charOutlineColor[renderIndex], _opacity);                  \
         }                                                                      \
                                                                                \
         gameExeDrawGlyph(                                                      \
@@ -1556,9 +1663,9 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
             page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER,              \
             page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER, displayStartX, \
             displayStartY,                                                     \
-            displayStartX + (COORDS_MULTIPLIER * page->glyphDisplayWidth[i]),  \
-            displayStartY + (COORDS_MULTIPLIER * page->glyphDisplayHeight[i]), \
-            page->charColor[i], _opacity);                                     \
+            displayStartX + (COORDS_MULTIPLIER * dispW),                       \
+            displayStartY + (COORDS_MULTIPLIER * dispH),                       \
+            page->charColor[renderIndex], _opacity);                           \
       }                                                                        \
     }                                                                          \
   }
