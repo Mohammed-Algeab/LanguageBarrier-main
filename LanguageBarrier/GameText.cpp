@@ -1418,15 +1418,19 @@ bool isSpeakerNameLine(DialoguePage* page, int fontNumber, int glyphIndex) {
   if (!DIALOGUE_PAGE_HAS_NAME)
     return false;
 
-  int firstLineY = 0x7FFFFFFF;
+  // In the Steins;Gate dialogue page, a name is laid out below the
+  // body text. Only use the last Y-line when the parser confirmed that
+  // this page actually contains a name; nameless dialogue mirrors all
+  // of its lines.
+  int nameLineY = -0x7FFFFFFF;
   for (int j = 0; j < page->pageLength; ++j) {
     if (fontNumber == page->fontNumber[j] &&
-        page->charDisplayY[j] < firstLineY) {
-      firstLineY = page->charDisplayY[j];
+        page->charDisplayY[j] > nameLineY) {
+      nameLineY = page->charDisplayY[j];
     }
   }
-  return firstLineY != 0x7FFFFFFF &&
-         page->charDisplayY[glyphIndex] == firstLineY;
+  return nameLineY != -0x7FFFFFFF &&
+         page->charDisplayY[glyphIndex] == nameLineY;
 }
 
 template <typename DialoguePage>
