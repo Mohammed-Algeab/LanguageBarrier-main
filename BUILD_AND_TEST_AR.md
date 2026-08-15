@@ -47,17 +47,21 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 
 ## تفعيل الوضع
 
-في ملف patch configuration الخاص بنسخة اللعبة، أضف:
+في ملف patch configuration الخاص بنسخة اللعبة، أضف الإعدادات التالية. لحالتك التي يكون فيها السكربت مجهزاً مسبقاً للـ Backlog، استخدم flowRTL وحده كاتجاه الرسم، واترك mirrorGlyphs على false للتوضيح:
 
 ```json
 {
   "patch": {
-    "rtlDialogue": true
+    "rtlDialogue": true,
+    "rtlDialogueRightX": 1200,
+    "rtlDialogueKeepNameLine": true,
+    "rtlDialogueMirrorGlyphs": false,
+    "rtlDialogueFlowRTL": true
   }
 }
 ```
 
-يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيار عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل.
+يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيارات عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل. عندما يكون `rtlDialogueFlowRTL` مفعلاً فهو يحدد اتجاه التدفق ويأخذ الأولوية، لذلك تغيير `rtlDialogueMirrorGlyphs` مع بقائه true لا ينبغي أن يغير اتجاه الرسم أو ترتيب glyphs.
 
 ## ترتيب الاختبار
 
@@ -85,7 +89,13 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 languagebarrier\log.txt
 ```
 
-تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. إذا لم يصل التنفيذ إلى hook، أرسل ملف السجل وملف `gamedef.json` المستخدم، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
+تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. ابحث أيضاً عن سطر يبدأ بـ:
+
+```text
+RTL dialogue config:
+```
+
+يجب أن يعرض القيم التي قرأها DLL فعلياً، مثل `enabled=1` و`flowRTL=1`. إذا لم يظهر هذا السطر، فاللعبة تستخدم DLL قديماً أو ملفاً آخر. وإذا ظهر السطر بالقيم الصحيحة لكن النتيجة لا تتغير، أرسل السجل وملف `gamedef.json` ونسخة patchdef المستخدمة، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
 
 ## حدود النسخة الحالية
 

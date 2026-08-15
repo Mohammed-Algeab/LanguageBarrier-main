@@ -775,6 +775,15 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueMirrorGlyphs", true);
   RTL_DIALOGUE_FLOW_RTL =
       config["patch"].value("rtlDialogueFlowRTL", false);
+  {
+    std::stringstream rtlLog;
+    rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
+           << ", rightX=" << RTL_DIALOGUE_RIGHT_X
+           << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
+           << ", mirrorGlyphs=" << (RTL_DIALOGUE_MIRROR_GLYPHS ? 1 : 0)
+           << ", flowRTL=" << (RTL_DIALOGUE_FLOW_RTL ? 1 : 0);
+    LanguageBarrierLog(rtlLog.str());
+  }
 
   if (currentGame == RNE || currentGame == RND) {
     fixLeadingZeroes();
@@ -1472,28 +1481,32 @@ template <typename DialoguePage>
 float flowDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                          int xOffset) {
   const int lineY = page->charDisplayY[glyphIndex];
+  float lineLeft = 1.0e30f;
   float lineRight = -1.0e30f;
   for (int j = 0; j < page->pageLength; ++j) {
     if (fontNumber != page->fontNumber[j] || page->charDisplayY[j] != lineY)
       continue;
+    const float glyphLeft =
+        (page->charDisplayX[j] + xOffset) * COORDS_MULTIPLIER;
     const float glyphRight =
-        (page->charDisplayX[j] + xOffset) * COORDS_MULTIPLIER +
-        page->glyphDisplayWidth[j] * COORDS_MULTIPLIER;
+        glyphLeft + page->glyphDisplayWidth[j] * COORDS_MULTIPLIER;
+    if (glyphLeft < lineLeft) lineLeft = glyphLeft;
     if (glyphRight > lineRight) lineRight = glyphRight;
   }
-  if (lineRight == -1.0e30f)
+  if (lineLeft == 1.0e30f || lineRight == -1.0e30f)
     return (page->charDisplayX[glyphIndex] + xOffset) * COORDS_MULTIPLIER;
 
+  // Keep the original glyph spacing/kerning and only reverse the placement
+  // direction. The old implementation summed glyph widths, which discarded
+  // gaps already calculated by the game's dialogue layout.
   const float targetRight =
       RTL_DIALOGUE_RIGHT_X > 0.0f
           ? RTL_DIALOGUE_RIGHT_X * COORDS_MULTIPLIER
           : lineRight;
-  float consumedWidth = 0.0f;
-  for (int j = 0; j <= glyphIndex; ++j) {
-    if (fontNumber == page->fontNumber[j] && page->charDisplayY[j] == lineY)
-      consumedWidth += page->glyphDisplayWidth[j] * COORDS_MULTIPLIER;
-  }
-  return targetRight - consumedWidth;
+  const float glyphRight =
+      (page->charDisplayX[glyphIndex] + xOffset) * COORDS_MULTIPLIER +
+      page->glyphDisplayWidth[glyphIndex] * COORDS_MULTIPLIER;
+  return targetRight - (glyphRight - lineLeft);
 }
 
 template <typename DialoguePage>
@@ -1541,12 +1554,15 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         if (UseRTLDialogue &&                                                     \
             !(RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
               isSpeakerNameLine(page, fontNumber, i))) {                            \
+          /* flowRTL is the explicit direction switch. When enabled it takes  \
+             precedence over the legacy mirror/align choice, so the two         \
+             controls cannot accidentally apply competing X transforms. */      \
           displayStartX =                                                        \
-              RTL_DIALOGUE_MIRROR_GLYPHS                                        \
-                  ? mirrorDialogueGlyphX(page, fontNumber, i, xOffset)            \
-                  : (RTL_DIALOGUE_FLOW_RTL                                     \
-                         ? flowDialogueGlyphX(page, fontNumber, i, xOffset)       \
-                         : alignDialogueGlyphX(page, fontNumber, i, xOffset));     \
+              RTL_DIALOGUE_FLOW_RTL                                             \
+                  ? flowDialogueGlyphX(page, fontNumber, i, xOffset)             \
+                  : (RTL_DIALOGUE_MIRROR_GLYPHS                                  \
+                         ? mirrorDialogueGlyphX(page, fontNumber, i, xOffset)     \
+                         : alignDialogueGlyphX(page, fontNumber, i, xOffset));   \
         }                                                                         \
                                                                                \
         uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
