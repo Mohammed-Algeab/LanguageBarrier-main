@@ -1603,9 +1603,10 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                          : alignDialogueGlyphX(page, fontNumber, i, xOffset));   \
         }                                                                      \
                                                                                \
-        uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
+        uint32_t _opacity =                                                   \
+            (page->charDisplayOpacity[renderIndex] * opacity) >> 8;             \
                                                                                \
-        if (page->charOutlineColor[i] != -1) {                       \
+        if (page->charOutlineColor[renderIndex] != -1) {                      \
           gameExeDrawGlyph(                                                    \
               OUTLINE_TEXTURE_ID,                                              \
               OUTLINE_CELL_WIDTH * page->glyphCol[renderIndex] *               \
@@ -1619,12 +1620,12 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
               displayStartX - OUTLINE_PADDING,                                 \
               displayStartY - OUTLINE_PADDING,                                 \
               displayStartX +                                                   \
-                  (COORDS_MULTIPLIER * page->glyphDisplayWidth[i]) + \
+                  (COORDS_MULTIPLIER * page->glyphDisplayWidth[renderIndex]) + \
                   OUTLINE_PADDING,                                             \
               displayStartY +                                                   \
-                  (COORDS_MULTIPLIER * page->glyphDisplayHeight[i]) + \
+                  (COORDS_MULTIPLIER * page->glyphDisplayHeight[renderIndex]) + \
                   OUTLINE_PADDING,                                             \
-              page->charOutlineColor[i], _opacity);                  \
+              page->charOutlineColor[renderIndex], _opacity);                 \
         }                                                                      \
                                                                                \
         gameExeDrawGlyph(                                                      \
@@ -1637,10 +1638,10 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
             page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER,             \
             displayStartX, displayStartY,                                      \
             displayStartX +                                                     \
-                (COORDS_MULTIPLIER * page->glyphDisplayWidth[i]),    \
+                (COORDS_MULTIPLIER * page->glyphDisplayWidth[renderIndex]),   \
             displayStartY +                                                     \
-                (COORDS_MULTIPLIER * page->glyphDisplayHeight[i]),   \
-            page->charColor[i], _opacity);                            \
+                (COORDS_MULTIPLIER * page->glyphDisplayHeight[renderIndex]),  \
+            page->charColor[renderIndex], _opacity);                           \
       }                                                                        \
     }                                                                          \
   }
