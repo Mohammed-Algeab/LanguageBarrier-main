@@ -6,8 +6,7 @@
 
 ## الطريقة الأسهل باستخدام GitHub Desktop أو Git Bash
 
-أنشئ مستودعاً جديداً وفارغاً في GitHub، ثم فك ضغط `LanguageBarrier-main-rtl-flow.zip` على جهازك. تحتوي هذه النسخة على خيار `rtlDialogueFlowRTL` الجديد.
- افتح PowerShell أو Git Bash داخل المجلد الذي يحتوي على `LanguageBarrier.sln`، وليس داخل مجلد فرعي زائد اسمه `LanguageBarrier-main` إذا كان سيجعل الحل في مكان خاطئ.
+أنشئ مستودعاً جديداً وفارغاً في GitHub، ثم فك ضغط `LanguageBarrier-main-rtl.zip` على جهازك. افتح PowerShell أو Git Bash داخل المجلد الذي يحتوي على `LanguageBarrier.sln`، وليس داخل مجلد فرعي زائد اسمه `LanguageBarrier-main` إذا كان سيجعل الحل في مكان خاطئ.
 
 نفّذ الأوامر التالية بعد استبدال عنوان المستودع بعنوان مستودعك:
 
@@ -20,8 +19,6 @@ git push -u origin main
 ```
 
 بعد الرفع، افتح تبويب **Actions** في المستودع. ستجد workflow باسم **Build LanguageBarrier RTL**. سيبدأ تلقائياً عند push إلى فرع `main`، ويمكن تشغيله يدوياً من **Actions → Build LanguageBarrier RTL → Run workflow**.
-
-بعد تنزيل الـ DLL، استخدم في `patchdef.json` الإعداد `rtlDialogueMirrorGlyphs: false` مع `rtlDialogueFlowRTL: true` إذا كانت glyphs في السكربت معكوسة مسبقاً من أجل Backlog. لا تحتاج إلى إعادة بناء DLL عند تغيير قيم `rtlDialogueRightX` أو أي خيارات RTL؛ عدّل patchdef فقط.
 
 ## تنزيل DLL
 

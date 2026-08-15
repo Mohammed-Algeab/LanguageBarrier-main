@@ -2,9 +2,6 @@
   "base": {
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
-    "rtlDialogueKeepNameLine": true,
-    "rtlDialogueMirrorGlyphs": false,
-    "rtlDialogueFlowRTL": true,
-    "rtlDialogueReverseGlyphOrder": false
+    "rtlDialogueKeepNameLine": true
   }
 }

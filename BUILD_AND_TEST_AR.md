@@ -47,28 +47,23 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 
 ## تفعيل الوضع
 
-في ملف patch configuration الخاص بنسخة اللعبة، أضف الإعدادات التالية. لحالتك التي يكون فيها السكربت مجهزاً مسبقاً للـ Backlog، استخدم flowRTL وحده كاتجاه الرسم، واترك mirrorGlyphs على false للتوضيح:
+في ملف patch configuration الخاص بنسخة اللعبة، أضف:
 
 ```json
 {
   "patch": {
-    "rtlDialogue": true,
-    "rtlDialogueRightX": 1200,
-    "rtlDialogueKeepNameLine": true,
-    "rtlDialogueMirrorGlyphs": false,
-    "rtlDialogueFlowRTL": true,
-    "rtlDialogueReverseGlyphOrder": false
+    "rtlDialogue": true
   }
 }
 ```
 
-يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيارات عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل. عندما يكون `rtlDialogueFlowRTL` مفعلاً فهو يحدد اتجاه التدفق ويأخذ الأولوية، لذلك تغيير `rtlDialogueMirrorGlyphs` مع بقائه true لا ينبغي أن يغير اتجاه الرسم. أما `rtlDialogueReverseGlyphOrder` فيبدّل مصدر glyphs داخل hook الحوار فقط؛ ولا يعدّل النص أو Backlog.
+يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيار عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل.
 
 ## ترتيب الاختبار
 
 انسخ DLL الناتج إلى مجلد اللعبة وفق طريقة patch الأصلية، واحتفظ بنسخة احتياطية من DLL والملفات الأصلية. لا تختبر فوق ملف الحفظ الوحيد؛ استخدم مشهداً قصيراً يمكن تكراره.
 
-ابدأ بجملة عربية قصيرة من كلمتين أو ثلاث. اختبر أولاً `rtlDialogueReverseGlyphOrder=false`: المطلوب أن يبدأ الرسم من الجهة اليمنى ويتجه إلى اليسار دون تغيير مصدر glyphs. إذا كان اتجاه الرسم صحيحاً لكن محتوى الحروف أو الكلمات يظهر معكوساً، غيّر هذا المفتاح إلى `true` فقط. عندها يجب أن يتغير ترتيب glyphs في الحوار، بينما يبقى Backlog والنص المخزن في السكربت كما هما. عند زيادة سرعة الكشف أو ظهور glyphs إضافية، يجب أن تتجه الإضافة نحو اليسار.
+ابدأ بجملة عربية قصيرة من كلمتين أو ثلاث. راقب أول ظهور للنص: المطلوب أن يظهر أول glyph منطقي في الجهة اليمنى. عند زيادة سرعة الكشف أو ظهور glyphs إضافية، يجب أن تتجه الإضافة نحو اليسار. يجب ألا تتغير سلسلة النص نفسها إلى ترتيب معكوس.
 
 بعد ذلك اختبر سطراً طويلاً يلتف إلى سطرين. في كل سطر يجب أن يبقى اتجاه الإضافة من اليمين إلى اليسار. اختبر أيضاً اسم المتحدث، لأن hook العام قد يشمله إذا كان مخزناً في نفس DialoguePage. ثم اختبر backlog والانتقال إلى الجملة التالية للتأكد من عدم وجود تداخل؛ التعديل الحالي لا يغير backlog أو mail عمداً.
 
@@ -78,7 +73,7 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 |---|---|
 | لا يوجد تغيير إطلاقاً | DLL غير محمّل، أو patch يستخدم configuration آخر، أو signatures لا تطابق executable |
 | النص يبدأ يميناً وينتشر يساراً لكن الكلمات متصلة خطأ | اتجاه الإحداثيات يعمل، لكن هناك حاجة إلى shaping؛ هذا ليس عكساً للنص |
-| اتجاه الرسم صحيح لكن الحروف/الكلمات معكوسة | جرّب `rtlDialogueReverseGlyphOrder=true`؛ هذا يعكس مصدر glyphs داخل الحوار فقط، ولا يغيّر السكربت أو Backlog |
+| الحروف تظهر بترتيب كلمات معكوس | مصدر الترجمة أو طبقة الاستبدال تقلب النص قبل الوصول إلى hook؛ يجب تعطيل أي reverse خارجي |
 | السطر الثاني غير صحيح | حدود الأسطر التي تبنيها اللعبة لا تتوافق مع شرط Y الحالي؛ نحتاج تعديل helper ليستخدم معلومات line-break الأصلية |
 | crash عند بدء اللعبة | DLL أو configuration غير متوافق، أو signature خاطئة؛ أعد DLL الأصلي وافحص `languagebarrier\log.txt` |
 
@@ -90,13 +85,7 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 languagebarrier\log.txt
 ```
 
-تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. ابحث أيضاً عن سطر يبدأ بـ:
-
-```text
-RTL dialogue config:
-```
-
-يجب أن يعرض القيم التي قرأها DLL فعلياً، مثل `enabled=1` و`flowRTL=1`. إذا لم يظهر هذا السطر، فاللعبة تستخدم DLL قديماً أو ملفاً آخر. وإذا ظهر السطر بالقيم الصحيحة لكن النتيجة لا تتغير، أرسل السجل وملف `gamedef.json` ونسخة patchdef المستخدمة، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
+تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. إذا لم يصل التنفيذ إلى hook، أرسل ملف السجل وملف `gamedef.json` المستخدم، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
 
 ## حدود النسخة الحالية
 
