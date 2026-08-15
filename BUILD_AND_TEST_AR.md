@@ -52,18 +52,21 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 ```json
 {
   "patch": {
-    "rtlDialogue": true
+    "rtlDialogue": true,
+    "rtlDialogueRightX": 1200,
+    "rtlDialogueKeepNameLine": true,
+    "rtlDialogueReverseText": true
   }
 }
 ```
 
-يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيار عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل.
+يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيارات عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل. إذا كان `rtlDialogueReverseText` مفعلاً، يبدّل hook مصدر glyph داخل صفحة الحوار فقط، ثم يطبق mirror X القديم. لا يغيّر السكربت أو Backlog أو النصوص العامة.
 
 ## ترتيب الاختبار
 
 انسخ DLL الناتج إلى مجلد اللعبة وفق طريقة patch الأصلية، واحتفظ بنسخة احتياطية من DLL والملفات الأصلية. لا تختبر فوق ملف الحفظ الوحيد؛ استخدم مشهداً قصيراً يمكن تكراره.
 
-ابدأ بجملة عربية قصيرة من كلمتين أو ثلاث. راقب أول ظهور للنص: المطلوب أن يظهر أول glyph منطقي في الجهة اليمنى. عند زيادة سرعة الكشف أو ظهور glyphs إضافية، يجب أن تتجه الإضافة نحو اليسار. يجب ألا تتغير سلسلة النص نفسها إلى ترتيب معكوس.
+ابدأ بجملة عربية قصيرة من كلمتين أو ثلاث. اختبر أولاً `rtlDialogueReverseText=false` لمقارنة RTL وحده، ثم اختبر `rtlDialogueReverseText=true`. في الوضع الثاني يجب أن تتبدل هوية glyphs داخل الحوار فقط مع بقاء موضع slot وأبعاده ثابتة، ثم يظهر السطر من اليمين إلى اليسار. لا تغيّر ترتيب النص في الملفات ولا تفعل reverse خارج DLL أثناء هذه المقارنة.
 
 بعد ذلك اختبر سطراً طويلاً يلتف إلى سطرين. في كل سطر يجب أن يبقى اتجاه الإضافة من اليمين إلى اليسار. اختبر أيضاً اسم المتحدث، لأن hook العام قد يشمله إذا كان مخزناً في نفس DialoguePage. ثم اختبر backlog والانتقال إلى الجملة التالية للتأكد من عدم وجود تداخل؛ التعديل الحالي لا يغير backlog أو mail عمداً.
 
@@ -73,7 +76,7 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 |---|---|
 | لا يوجد تغيير إطلاقاً | DLL غير محمّل، أو patch يستخدم configuration آخر، أو signatures لا تطابق executable |
 | النص يبدأ يميناً وينتشر يساراً لكن الكلمات متصلة خطأ | اتجاه الإحداثيات يعمل، لكن هناك حاجة إلى shaping؛ هذا ليس عكساً للنص |
-| الحروف تظهر بترتيب كلمات معكوس | مصدر الترجمة أو طبقة الاستبدال تقلب النص قبل الوصول إلى hook؛ يجب تعطيل أي reverse خارجي |
+| اتجاه RTL صحيح لكن المحتوى معكوس | فعّل `rtlDialogueReverseText=true` داخل الحوار فقط، ولا تعكس النص في السكربت أثناء الاختبار |
 | السطر الثاني غير صحيح | حدود الأسطر التي تبنيها اللعبة لا تتوافق مع شرط Y الحالي؛ نحتاج تعديل helper ليستخدم معلومات line-break الأصلية |
 | crash عند بدء اللعبة | DLL أو configuration غير متوافق، أو signature خاطئة؛ أعد DLL الأصلي وافحص `languagebarrier\log.txt` |
 
@@ -85,7 +88,7 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 languagebarrier\log.txt
 ```
 
-تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. إذا لم يصل التنفيذ إلى hook، أرسل ملف السجل وملف `gamedef.json` المستخدم، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
+تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. يجب أن يظهر أيضاً سطر يبدأ بـ `RTL dialogue config:` وينتهي بقيمة `reverseText=1` عند تفعيل الخيار. إذا لم يصل التنفيذ إلى hook، أرسل ملف السجل وملف `gamedef.json` المستخدم، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
 
 ## حدود النسخة الحالية
 

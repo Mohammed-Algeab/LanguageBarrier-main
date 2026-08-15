@@ -2,6 +2,7 @@
   "base": {
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
-    "rtlDialogueKeepNameLine": true
+    "rtlDialogueKeepNameLine": true,
+    "rtlDialogueReverseText": true
   }
 }

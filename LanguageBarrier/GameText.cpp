@@ -745,6 +745,9 @@ bool UseRTLDialogue = false;
 // Zero keeps the automatic per-line mirror behavior.
 float RTL_DIALOGUE_RIGHT_X = 0.0f;
 bool RTL_DIALOGUE_KEEP_NAME_LINE = false;
+// Reverse glyph identities only while drawing dialogue pages. The SC3 source,
+// Backlog, and every non-dialogue renderer remain unchanged.
+bool RTL_DIALOGUE_REVERSE_TEXT = false;
 
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
@@ -765,6 +768,16 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueRightX", 0.0f);
   RTL_DIALOGUE_KEEP_NAME_LINE =
       config["patch"].value("rtlDialogueKeepNameLine", false);
+  RTL_DIALOGUE_REVERSE_TEXT =
+      config["patch"].value("rtlDialogueReverseText", false);
+  {
+    std::stringstream rtlLog;
+    rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
+           << ", rightX=" << RTL_DIALOGUE_RIGHT_X
+           << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
+           << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0);
+    LanguageBarrierLog(rtlLog.str());
+  }
 
   if (currentGame == RNE || currentGame == RND) {
     fixLeadingZeroes();
@@ -1434,6 +1447,36 @@ bool isSpeakerNameLine(DialoguePage* page, int fontNumber, int glyphIndex) {
 }
 
 template <typename DialoguePage>
+int dialogueGlyphIndexForRender(DialoguePage* page, int fontNumber,
+                                int glyphIndex) {
+  if (!RTL_DIALOGUE_REVERSE_TEXT)
+    return glyphIndex;
+
+  const int lineY = page->charDisplayY[glyphIndex];
+  int ordinal = 0;
+  int lineCount = 0;
+  for (int j = 0; j < page->pageLength; ++j) {
+    if (fontNumber != page->fontNumber[j] || page->charDisplayY[j] != lineY)
+      continue;
+    if (j == glyphIndex) ordinal = lineCount;
+    ++lineCount;
+  }
+  if (lineCount <= 0)
+    return glyphIndex;
+
+  const int targetOrdinal = lineCount - 1 - ordinal;
+  lineCount = 0;
+  for (int j = 0; j < page->pageLength; ++j) {
+    if (fontNumber != page->fontNumber[j] || page->charDisplayY[j] != lineY)
+      continue;
+    if (lineCount == targetOrdinal)
+      return j;
+    ++lineCount;
+  }
+  return glyphIndex;
+}
+
+template <typename DialoguePage>
 float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                            int xOffset) {
   const int lineY = page->charDisplayY[glyphIndex];
@@ -1471,13 +1514,17 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                                                                                \
     for (int i = 0; i < page->pageLength; i++) {                               \
       if (fontNumber == page->fontNumber[i]) {                                 \
+        const bool keepNameLine =                                               \
+            RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
+            isSpeakerNameLine(page, fontNumber, i);                             \
+        const int renderIndex =                                                 \
+            keepNameLine ? i                                                    \
+                         : dialogueGlyphIndexForRender(page, fontNumber, i);    \
         float displayStartX =                                                  \
             (page->charDisplayX[i] + xOffset) * COORDS_MULTIPLIER;             \
         int displayStartY =                                                    \
             (page->charDisplayY[i] + yOffset) * COORDS_MULTIPLIER;             \
-        if (UseRTLDialogue &&                                                     \
-            !(RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
-              isSpeakerNameLine(page, fontNumber, i)))                             \
+        if (UseRTLDialogue && !keepNameLine)                                      \
           displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
                                                                                \
         uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;      \
@@ -1485,11 +1532,11 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         if (page->charOutlineColor[i] != -1) {                                 \
           gameExeDrawGlyph(                                                    \
               OUTLINE_TEXTURE_ID,                                              \
-              OUTLINE_CELL_WIDTH * page->glyphCol[i] * COORDS_MULTIPLIER,      \
-              OUTLINE_CELL_HEIGHT * page->glyphRow[i] * COORDS_MULTIPLIER,     \
-              page->glyphOrigWidth[i] * COORDS_MULTIPLIER +                    \
+              OUTLINE_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER, \
+              OUTLINE_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER, \
+              page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER +           \
                   (2 * OUTLINE_PADDING),                                       \
-              page->glyphOrigHeight[i] * COORDS_MULTIPLIER +                   \
+              page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER +          \
                   (2 * OUTLINE_PADDING),                                       \
               displayStartX - OUTLINE_PADDING,                                 \
               displayStartY - OUTLINE_PADDING,                                 \
@@ -1504,10 +1551,10 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                                                                                \
         gameExeDrawGlyph(                                                      \
             FIRST_FONT_ID,                                                     \
-            FONT_CELL_WIDTH * page->glyphCol[i] * COORDS_MULTIPLIER,           \
-            FONT_CELL_HEIGHT * page->glyphRow[i] * COORDS_MULTIPLIER,          \
-            page->glyphOrigWidth[i] * COORDS_MULTIPLIER,                       \
-            page->glyphOrigHeight[i] * COORDS_MULTIPLIER, displayStartX,       \
+            FONT_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER,   \
+            FONT_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER,  \
+            page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER,              \
+            page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER, displayStartX, \
             displayStartY,                                                     \
             displayStartX + (COORDS_MULTIPLIER * page->glyphDisplayWidth[i]),  \
             displayStartY + (COORDS_MULTIPLIER * page->glyphDisplayHeight[i]), \

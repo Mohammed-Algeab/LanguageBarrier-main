@@ -27,13 +27,14 @@ The source includes an opt-in `patch.rtlDialogue` mode for the classic dialogue-
   "patch": {
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
-    "rtlDialogueKeepNameLine": true
+    "rtlDialogueKeepNameLine": true,
+    "rtlDialogueReverseText": true
   }
 }
 ```
 
-When enabled, the main dialogue hook keeps the SC3 text stream and the page iteration order unchanged. It mirrors each glyph horizontally inside the complete line bounds, so the first logical glyph is placed at the right edge and later glyphs extend toward the left. This is intentionally different from reversing the translated string.
+When enabled, the main dialogue hook keeps the SC3 text stream unchanged. With `rtlDialogueReverseText: false`, it only mirrors each glyph horizontally inside the complete line bounds. With `rtlDialogueReverseText: true`, it uses the glyph source from the opposite slot on the same dialogue line while keeping the destination slot's X/Y and display box; the temporary reversal exists only inside the dialogue draw hook. It then applies the same RTL X-mirroring. The script, Backlog, mail, phone, menus, and other renderers are not modified.
 
 `rtlDialogueRightX` is an optional coordinate in the game's logical coordinate system before `coordsMultiplier` is applied. Start with `1200` for STEINS;GATE HD; increase it gradually to `1220` or `1240` if the line still starts too far left, or decrease it if the text crosses the right edge. Omitting the key or setting it to `0` restores the automatic per-line mirror behavior. `rtlDialogueKeepNameLine` first requires the dialogue parser's `name_start` marker, then skips the last Y-line because that is where the speaker name is laid out in the tested STEINS;GATE page. When no name marker exists, no line is skipped and all dialogue lines remain RTL.
 
-The mode is disabled by default and is applied only by the generic `DEF_DRAW_DIALOGUE_HOOK` path. It does not alter auxiliary mail, backlog, phone, or newer RNE/RND text paths. It also does not provide Arabic contextual shaping by itself; the configured font must already be suitable for the current glyph pipeline. If Arabic joining forms are not rendered correctly, a separate shaping stage using Uniscribe or HarfBuzz will be required before glyph IDs reach the renderer.
+The mode is disabled by default and is applied only by the generic `DEF_DRAW_DIALOGUE_HOOK` path. `rtlDialogueReverseText` is also disabled by default; enable it only when the source glyph order is opposite to the required Arabic visual order. It does not alter auxiliary mail, backlog, phone, or newer RNE/RND text paths. It also does not provide Arabic contextual shaping by itself; the configured font must already be suitable for the current glyph pipeline. If Arabic joining forms are not rendered correctly, a separate shaping stage using Uniscribe or HarfBuzz will be required before glyph IDs reach the renderer.
