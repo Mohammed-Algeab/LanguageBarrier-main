@@ -95,3 +95,40 @@ jobs:
           path: artifact/${{ matrix.configuration }}
           if-no-files-found: error
           retention-days: 14
+
+- name: Setup vcpkg and install dependencies
+  shell: pwsh
+  run: |
+    # Retry logic for vcpkg install
+    $maxAttempts = 3
+    $attempt = 0
+    $success = $false
+    
+    while ($attempt -lt $maxAttempts -and -not $success) {
+      $attempt++
+      Write-Host "Attempt $attempt of $maxAttempts"
+      
+      if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+        git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+        & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+        if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+      }
+      
+      & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
+      if ($LASTEXITCODE -ne 0) { throw "vcpkg MSBuild integration failed" }
+      
+      & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x86-windows --x-manifest-root "$env:GITHUB_WORKSPACE"
+      
+      if ($LASTEXITCODE -eq 0) {
+        $success = $true
+        Write-Host "vcpkg install succeeded"
+      } else {
+        if ($attempt -lt $maxAttempts) {
+          $delaySeconds = [Math]::Pow(2, $attempt)
+          Write-Host "vcpkg install failed, waiting $delaySeconds seconds before retry..."
+          Start-Sleep -Seconds $delaySeconds
+        } else {
+          throw "vcpkg install failed after $maxAttempts attempts"
+        }
+      }
+    }
