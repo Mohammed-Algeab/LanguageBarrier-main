@@ -96,7 +96,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-- name: Setup vcpkg and install dependencies
+       - name: Setup vcpkg and install dependencies
   shell: pwsh
   run: |
     # Retry logic for vcpkg install
