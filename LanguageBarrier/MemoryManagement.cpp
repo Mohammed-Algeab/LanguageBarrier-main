@@ -2,7 +2,6 @@
 #include "Config.h"
 #include "LanguageBarrier.h"
 #include "PoolAllocator.h"
-#include <algorithm>
 
 // This part of the patch hooks malloc() and friends and first tries to serve
 // allocation requests for 4-36MB blocks with custom pool allocators before

@@ -2,7 +2,6 @@
 #define __LANGUAGEBARRIER_H__
 
 #define INST_NOP (0x90)
-#include <algorithm>
 #define INST_CALL_LEN (5)
 #define INST_JMP_SHORT (0xEB)
 
@@ -14,7 +13,6 @@
 
 #include "targetver.h"
 #define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <Windows.h>
 #include <wchar.h>
 #include <cstdint>
