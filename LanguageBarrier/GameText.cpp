@@ -1,4 +1,4 @@
-﻿#include "GameText.h"
+#include "GameText.h"
 #include <fstream>
 #include <list>
 #include <sstream>
@@ -748,10 +748,17 @@ bool RTL_DIALOGUE_KEEP_NAME_LINE = false;
 // Reverse glyph identities only while drawing dialogue pages. The SC3 source,
 // Backlog, and every non-dialogue renderer remain unchanged.
 bool RTL_DIALOGUE_REVERSE_TEXT = false;
+// RTL debug logging
 bool RTL_DIALOGUE_DEBUG_LOG = false;
 int RTL_DIALOGUE_DEBUG_MAX_LINES = 200;
 static int rtlDialogueDebugPageLogged = -1;
 static int rtlDialogueDebugLinesLogged = 0;
+
+// RTL glyph appearance tuning (configurable from patchdef.json)
+float RTL_GLYPH_SCALE_X = 1.0f;
+float RTL_GLYPH_SCALE_Y = 1.0f;
+float RTL_GLYPH_X_OFFSET = 0.0f;
+float RTL_GLYPH_Y_OFFSET = 0.0f;
 
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
@@ -778,12 +785,26 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueDebugLog", false);
   RTL_DIALOGUE_DEBUG_MAX_LINES =
       config["patch"].value("rtlDialogueDebugMaxLines", 200);
+  RTL_GLYPH_SCALE_X =
+      config["patch"].value("rtlDialogueGlyphScaleX", 1.0f);
+  RTL_GLYPH_SCALE_Y =
+      config["patch"].value("rtlDialogueGlyphScaleY", 1.0f);
+  RTL_GLYPH_X_OFFSET =
+      config["patch"].value("rtlDialogueGlyphXOffset", 0.0f);
+  RTL_GLYPH_Y_OFFSET =
+      config["patch"].value("rtlDialogueGlyphYOffset", 0.0f);
   {
     std::stringstream rtlLog;
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
            << ", rightX=" << RTL_DIALOGUE_RIGHT_X
            << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
-           << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0);
+           << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0)
+           << ", debugLog=" << (RTL_DIALOGUE_DEBUG_LOG ? 1 : 0)
+           << ", debugMaxLines=" << RTL_DIALOGUE_DEBUG_MAX_LINES
+           << ", glyphScaleX=" << RTL_GLYPH_SCALE_X
+           << ", glyphScaleY=" << RTL_GLYPH_SCALE_Y
+           << ", glyphXOffset=" << RTL_GLYPH_X_OFFSET
+           << ", glyphYOffset=" << RTL_GLYPH_Y_OFFSET;
     LanguageBarrierLog(rtlLog.str());
   }
 
@@ -1566,55 +1587,74 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         const int renderIndex =                                                 \
             keepNameLine ? i                                                    \
                          : dialogueGlyphIndexForRender(page, fontNumber, i);    \
-        logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, renderIndex, \
-                                  keepNameLine);                                 \
+                                                                               \
         float displayStartX =                                                  \
             (page->charDisplayX[i] + xOffset) * COORDS_MULTIPLIER;             \
         int displayStartY =                                                    \
             (page->charDisplayY[i] + yOffset) * COORDS_MULTIPLIER;             \
-        if (UseRTLDialogue && !keepNameLine)                                   \
-          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset); \
+        if (UseRTLDialogue && !keepNameLine)                                      \
+          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
                                                                                \
-        uint32_t _opacity =                                                     \
-            (page->charDisplayOpacity[renderIndex] * opacity) >> 8;            \
+        /* RTL typewriter fix: opacity follows visual slot (i), not glyph identity.\
+         * The engine fills opacity[0..N] LTR; after mirrorDialogueGlyphX, slot 0\
+         * moves to the RIGHT. So opacity[i] makes the RIGHTMOST glyph appear\
+         * FIRST -- correct RTL behavior. */                                     \
+        uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;       \
                                                                                \
-        /* FIX: destination size must match the borrowed glyph identity. */     \
-        const int16_t dispW = page->glyphDisplayWidth[renderIndex];             \
+        /* FIX: destination size must match the borrowed glyph (renderIndex),\
+         * not the original slot (i). Otherwise a glyph's natural dimensions\
+         * get squashed into a box sized for a different character. */          \
+        const int16_t dispW = page->glyphDisplayWidth[renderIndex];            \
         const int16_t dispH = page->glyphDisplayHeight[renderIndex];            \
                                                                                \
-        if (page->charOutlineColor[renderIndex] != -1) {                        \
-          gameExeDrawGlyph(                                                     \
-              OUTLINE_TEXTURE_ID,                                               \
+        /* Apply RTL glyph appearance tuning from patchdef.json */             \
+        const float scaleX = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_SCALE_X : 1.0f; \
+        const float scaleY = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_SCALE_Y : 1.0f; \
+        const float xOff   = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_X_OFFSET : 0.0f; \
+        const float yOff   = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_Y_OFFSET : 0.0f; \
+        const float scaledDispW = dispW * scaleX;                              \
+        const float scaledDispH = dispH * scaleY;                              \
+        displayStartX += xOff;                                                 \
+        displayStartY += yOff;                                                 \
+                                                                               \
+        logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, renderIndex, \
+                                  keepNameLine);                               \
+                                                                               \
+        /* FIX: outline color must follow glyph identity (renderIndex) */      \
+        if (page->charOutlineColor[renderIndex] != -1) {                       \
+          gameExeDrawGlyph(                                                    \
+              OUTLINE_TEXTURE_ID,                                              \
               OUTLINE_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER, \
               OUTLINE_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER, \
               page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER +           \
-                  (2 * OUTLINE_PADDING),                                        \
+                  (2 * OUTLINE_PADDING),                                       \
               page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER +          \
                   (2 * OUTLINE_PADDING),                                       \
-              displayStartX - OUTLINE_PADDING,                                  \
-              displayStartY - OUTLINE_PADDING,                                  \
-              displayStartX +                                                    \
-                  (COORDS_MULTIPLIER * dispW) +                                 \
-                  OUTLINE_PADDING,                                               \
-              displayStartY +                                                    \
-                  (COORDS_MULTIPLIER * dispH) +                                 \
-                  OUTLINE_PADDING,                                               \
-              page->charOutlineColor[renderIndex], _opacity);                  \
-        }                                                                       \
+              displayStartX - OUTLINE_PADDING,                                 \
+              displayStartY - OUTLINE_PADDING,                                 \
+              displayStartX +                                                  \
+                  (COORDS_MULTIPLIER * scaledDispW) +                          \
+                  OUTLINE_PADDING,                                             \
+              displayStartY +                                                  \
+                  (COORDS_MULTIPLIER * scaledDispH) +                          \
+                  OUTLINE_PADDING,                                             \
+              page->charOutlineColor[renderIndex], _opacity);                   \
+        }                                                                      \
                                                                                \
+        /* FIX: text color must follow glyph identity (renderIndex) */         \
         gameExeDrawGlyph(                                                      \
             FIRST_FONT_ID,                                                     \
-            FONT_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER, \
-            FONT_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER, \
+            FONT_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER,   \
+            FONT_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER,  \
             page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER,              \
             page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER,             \
-            displayStartX,                                                      \
-            displayStartY,                                                      \
-            displayStartX + (COORDS_MULTIPLIER * dispW),                        \
-            displayStartY + (COORDS_MULTIPLIER * dispH),                       \
+            displayStartX,                                                     \
+            displayStartY,                                                     \
+            displayStartX + (COORDS_MULTIPLIER * scaledDispW),                 \
+            displayStartY + (COORDS_MULTIPLIER * scaledDispH),                 \
             page->charColor[renderIndex], _opacity);                            \
-      }                                                                         \
-    }                                                                           \
+      }                                                                        \
+    }                                                                          \
   }
 
 #define DEF_RNDRAW_DIALOGUE_HOOK(funcName, pageType)                           \
