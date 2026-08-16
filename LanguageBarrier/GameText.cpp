@@ -1,5 +1,4 @@
 #include "GameText.h"
-#include <algorithm>
 #include <fstream>
 #include <list>
 #include <sstream>
@@ -1634,7 +1633,8 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
           /* Preserve the borrowed glyph's own aspect ratio instead of       */ \
           /* independently stretching W and H to fill slot i's box -- that  */ \
           /* independent stretch is what warps Arabic joining strokes.      */ \
-          float scale = std::min(fitW / srcW, fitH / srcH);                   \
+          float scale = (fitW / srcW < fitH / srcH) ? (fitW / srcW)          \
+                                                     : (fitH / srcH);         \
           float scaledW = srcW * scale;                                       \
           float scaledH = srcH * scale;                                       \
           fitX0 = displayStartX + (fitW - scaledW) / 2.0f;                    \
