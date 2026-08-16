@@ -1,4 +1,5 @@
 #include "GameText.h"
+#include <algorithm>
 #include <fstream>
 #include <list>
 #include <sstream>
@@ -759,6 +760,11 @@ float RTL_GLYPH_SCALE_X = 1.0f;
 float RTL_GLYPH_SCALE_Y = 1.0f;
 float RTL_GLYPH_X_OFFSET = 0.0f;
 float RTL_GLYPH_Y_OFFSET = 0.0f;
+// When true, a borrowed glyph is uniformly scaled and centered inside slot
+// i's box instead of having its natural aspect ratio stretched to fill it.
+// Recommended for RTL Arabic dialogue; "stretch" matches the original
+// (pre-RTL) behavior exactly when i == renderIndex, i.e. in LTR mode.
+bool RTL_DIALOGUE_UNIFORM_SCALE = false;
 
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
@@ -793,6 +799,9 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueGlyphXOffset", 0.0f);
   RTL_GLYPH_Y_OFFSET =
       config["patch"].value("rtlDialogueGlyphYOffset", 0.0f);
+  RTL_DIALOGUE_UNIFORM_SCALE =
+      config["patch"].value("rtlDialogueGlyphFitMode", std::string("stretch")) ==
+      "uniformScale";
   {
     std::stringstream rtlLog;
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
@@ -1601,27 +1610,60 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
          * FIRST -- correct RTL behavior. */                                     \
         uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;       \
                                                                                \
-        /* FIX: destination size must match the borrowed glyph (renderIndex),\
-         * not the original slot (i). Otherwise a glyph's natural dimensions\
-         * get squashed into a box sized for a different character. */          \
-        const int16_t dispW = page->glyphDisplayWidth[renderIndex];            \
-        const int16_t dispH = page->glyphDisplayHeight[renderIndex];            \
+        /* FIX: destination box (position AND size) must stay tied to the\
+         * visual slot (i), matching what the engine's own word-wrap already\
+         * laid out. glyphDisplayWidth[i]/glyphDisplayHeight[i] are what keep\
+         * adjacent boxes tiling with zero gaps or overlap along the line --\
+         * sourcing size from renderIndex breaks that tiling invariant because\
+         * the borrowed glyph's natural size is almost never equal to the\
+         * size the layout engine reserved for slot i. This is what caused\
+         * the overlap / stray-character symptoms in RTL mode specifically\
+         * (in LTR, renderIndex==i always, so the mismatch never triggers). */ \
+        const int16_t dispW = page->glyphDisplayWidth[i];                      \
+        const int16_t dispH = page->glyphDisplayHeight[i];                     \
                                                                                \
-        /* Apply RTL glyph appearance tuning from patchdef.json */             \
+        /* The borrowed glyph's own natural crop size (source, renderIndex). */ \
+        const float srcW = page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER; \
+        const float srcH = page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER; \
+        float fitX0 = displayStartX;                                          \
+        float fitY0 = displayStartY;                                          \
+        float fitW = COORDS_MULTIPLIER * dispW;                               \
+        float fitH = COORDS_MULTIPLIER * dispH;                               \
+        if (RTL_DIALOGUE_UNIFORM_SCALE && !keepNameLine && srcW > 0.0f &&      \
+            srcH > 0.0f) {                                                    \
+          /* Preserve the borrowed glyph's own aspect ratio instead of       */ \
+          /* independently stretching W and H to fill slot i's box -- that  */ \
+          /* independent stretch is what warps Arabic joining strokes.      */ \
+          float scale = std::min(fitW / srcW, fitH / srcH);                   \
+          float scaledW = srcW * scale;                                       \
+          float scaledH = srcH * scale;                                       \
+          fitX0 = displayStartX + (fitW - scaledW) / 2.0f;                    \
+          fitY0 = displayStartY + (fitH - scaledH) / 2.0f;                    \
+          fitW = scaledW;                                                    \
+          fitH = scaledH;                                                    \
+        }                                                                     \
+                                                                               \
+        /* Cosmetic fine-tuning knobs from patchdef.json, applied on top of  */ \
+        /* the already-correct (non-overlapping) fit rectangle above.       */ \
         const float scaleX = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_SCALE_X : 1.0f; \
         const float scaleY = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_SCALE_Y : 1.0f; \
         const float xOff   = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_X_OFFSET : 0.0f; \
         const float yOff   = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_Y_OFFSET : 0.0f; \
-        const float scaledDispW = dispW * scaleX;                              \
-        const float scaledDispH = dispH * scaleY;                              \
-        displayStartX += xOff;                                                 \
-        displayStartY += yOff;                                                 \
+        const float extraW = fitW * (scaleX - 1.0f);                          \
+        const float extraH = fitH * (scaleY - 1.0f);                         \
+        fitX0 += xOff - extraW / 2.0f;                                        \
+        fitY0 += yOff - extraH / 2.0f;                                        \
+        fitW *= scaleX;                                                       \
+        fitH *= scaleY;                                                       \
                                                                                \
         logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, renderIndex, \
                                   keepNameLine);                               \
                                                                                \
-        /* FIX: outline color must follow glyph identity (renderIndex) */      \
-        if (page->charOutlineColor[renderIndex] != -1) {                       \
+        /* Color/outline stay tied to slot i too -- same reasoning as size:  */ \
+        /* they are per-character authoring properties of whatever is drawn */ \
+        /* at that position, and this matches the confirmed-correct LTR     */ \
+        /* baseline where i == renderIndex always. */                        \
+        if (page->charOutlineColor[i] != -1) {                                \
           gameExeDrawGlyph(                                                    \
               OUTLINE_TEXTURE_ID,                                              \
               OUTLINE_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER, \
@@ -1630,29 +1672,24 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
                   (2 * OUTLINE_PADDING),                                       \
               page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER +          \
                   (2 * OUTLINE_PADDING),                                       \
-              displayStartX - OUTLINE_PADDING,                                 \
-              displayStartY - OUTLINE_PADDING,                                 \
-              displayStartX +                                                  \
-                  (COORDS_MULTIPLIER * scaledDispW) +                          \
-                  OUTLINE_PADDING,                                             \
-              displayStartY +                                                  \
-                  (COORDS_MULTIPLIER * scaledDispH) +                          \
-                  OUTLINE_PADDING,                                             \
-              page->charOutlineColor[renderIndex], _opacity);                   \
+              fitX0 - OUTLINE_PADDING,                                         \
+              fitY0 - OUTLINE_PADDING,                                         \
+              fitX0 + fitW + OUTLINE_PADDING,                                  \
+              fitY0 + fitH + OUTLINE_PADDING,                                  \
+              page->charOutlineColor[i], _opacity);                            \
         }                                                                      \
                                                                                \
-        /* FIX: text color must follow glyph identity (renderIndex) */         \
         gameExeDrawGlyph(                                                      \
             FIRST_FONT_ID,                                                     \
             FONT_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER,   \
             FONT_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER,  \
             page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER,              \
             page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER,             \
-            displayStartX,                                                     \
-            displayStartY,                                                     \
-            displayStartX + (COORDS_MULTIPLIER * scaledDispW),                 \
-            displayStartY + (COORDS_MULTIPLIER * scaledDispH),                 \
-            page->charColor[renderIndex], _opacity);                            \
+            fitX0,                                                             \
+            fitY0,                                                             \
+            fitX0 + fitW,                                                      \
+            fitY0 + fitH,                                                      \
+            page->charColor[i], _opacity);                                     \
       }                                                                        \
     }                                                                          \
   }
