@@ -3,6 +3,7 @@
 #include <stb_vorbis.h>
 #include <emmintrin.h>
 #include <fstream>
+#include <algorithm>
 #include <unordered_map>
 #include "Config.h"
 #include "Game.h"
