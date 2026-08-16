@@ -1,4 +1,5 @@
 ﻿#include "GameText.h"
+#include <algorithm>
 #include <fstream>
 #include <list>
 #include <sstream>
@@ -758,6 +759,27 @@ int RTL_DIALOGUE_DEBUG_MAX_LINES = 200;
 static int rtlDialogueDebugPageLogged = -1;
 static int rtlDialogueDebugLinesLogged = 0;
 
+// When true (default, and mathematically the correct choice given the
+// current position/identity formulas), the reveal-progress lookup uses the
+// destination slot index i, which keeps reveal timing correlated with
+// on-screen position (right-to-left for RTL lines). When false, it uses
+// renderIndex like earlier code did -- kept as a toggle only so the two can
+// be compared without a rebuild if some other regression shows up.
+bool RTL_DIALOGUE_OPACITY_FROM_SLOT = true;
+
+// When true, a borrowed glyph is uniformly scaled and centered inside slot
+// i's box instead of having its width/height independently stretched to
+// exactly fill it. Independent stretching is what visibly warps Arabic
+// joining strokes when the borrowed glyph's natural aspect ratio differs
+// from the box it is being placed into. Tunable from patchdef.json so it
+// can be compared against the original "stretch" behavior without a rebuild
+// of anything other than patchdef.json itself (no DLL recompile needed).
+bool RTL_DIALOGUE_UNIFORM_SCALE = false;
+// Extra multiplier applied on top of the automatic uniform-scale factor, for
+// fine visual tuning (e.g. 1.1 to make glyphs sit a bit larger inside their
+// box). Has no effect unless rtlDialogueGlyphFitMode is "uniformScale".
+float RTL_DIALOGUE_GLYPH_EXTRA_SCALE = 1.0f;
+
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
     if (config["gamedef"]["dialoguePageVersion"].get<std::string>() == "rn") {
@@ -782,6 +804,14 @@ void gameTextInit() {
   RTL_DIALOGUE_DEBUG_LOG = config["patch"].value("rtlDialogueDebugLog", false);
   RTL_DIALOGUE_DEBUG_MAX_LINES =
       config["patch"].value("rtlDialogueDebugMaxLines", 200);
+  RTL_DIALOGUE_UNIFORM_SCALE =
+      config["patch"].value("rtlDialogueGlyphFitMode", std::string("stretch")) ==
+      "uniformScale";
+  RTL_DIALOGUE_GLYPH_EXTRA_SCALE =
+      config["patch"].value("rtlDialogueGlyphExtraScale", 1.0f);
+  RTL_DIALOGUE_OPACITY_FROM_SLOT =
+      config["patch"].value("rtlDialogueOpacityIndex", std::string("slot")) ==
+      "slot";
   {
     std::stringstream rtlLog;
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
@@ -1630,17 +1660,40 @@ void logRtlDialogueDebugLineGroups(DialoguePage* page, int pageNumber) {
         if (UseRTLDialogue && !keepNameLine)                                      \
           displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
                                                                                \
-        uint32_t _opacity = (page->charDisplayOpacity[renderIndex] * opacity) >> 8; \
-        /* Destination box size and color/outline must follow the SAME     */ \
-        /* index as the borrowed source cell (renderIndex), never the      */ \
-        /* visual slot index i -- otherwise a glyph's natural aspect ratio */ \
-        /* gets stretched/squeezed into a box sized for a different glyph. */ \
-        const int16_t dispW = page->glyphDisplayWidth[renderIndex];            \
-        const int16_t dispH = page->glyphDisplayHeight[renderIndex];           \
+        const int opacityIndex =                                               \
+            RTL_DIALOGUE_OPACITY_FROM_SLOT ? i : renderIndex;                  \
+        uint32_t _opacity = (page->charDisplayOpacity[opacityIndex] * opacity) >> 8; \
+        /* Destination box position AND size stay tied to slot i, exactly   */ \
+        /* as in the unmodified engine -- this is what keeps adjacent boxes */ \
+        /* tiling with zero gaps/overlap along the line. Do not source      */ \
+        /* dispW/dispH from renderIndex; that breaks the tiling invariant.  */ \
+        const int16_t dispW = page->glyphDisplayWidth[i];                      \
+        const int16_t dispH = page->glyphDisplayHeight[i];                     \
         logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, renderIndex, \
                                  keepNameLine);                                \
                                                                                \
-        if (page->charOutlineColor[renderIndex] != -1) {                       \
+        /* The borrowed glyph's own natural crop size (source, renderIndex). */ \
+        const float srcW = page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER; \
+        const float srcH = page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER; \
+        float fitX0 = displayStartX;                                           \
+        float fitY0 = displayStartY;                                           \
+        float fitW = COORDS_MULTIPLIER * dispW;                                \
+        float fitH = COORDS_MULTIPLIER * dispH;                                \
+        if (RTL_DIALOGUE_UNIFORM_SCALE && srcW > 0.0f && srcH > 0.0f) {        \
+          /* Preserve the borrowed glyph's own aspect ratio instead of       */ \
+          /* independently stretching W and H to fill slot i's box -- that  */ \
+          /* independent stretch is what warps Arabic joining strokes.      */ \
+          float scale = std::min(fitW / srcW, fitH / srcH) *                   \
+                        RTL_DIALOGUE_GLYPH_EXTRA_SCALE;                        \
+          float scaledW = srcW * scale;                                       \
+          float scaledH = srcH * scale;                                       \
+          fitX0 = displayStartX + (fitW - scaledW) / 2.0f;                     \
+          fitY0 = displayStartY + (fitH - scaledH) / 2.0f;                     \
+          fitW = scaledW;                                                     \
+          fitH = scaledH;                                                     \
+        }                                                                     \
+                                                                               \
+        if (page->charOutlineColor[i] != -1) {                                 \
           gameExeDrawGlyph(                                                    \
               OUTLINE_TEXTURE_ID,                                              \
               OUTLINE_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER, \
@@ -1649,11 +1702,11 @@ void logRtlDialogueDebugLineGroups(DialoguePage* page, int pageNumber) {
                   (2 * OUTLINE_PADDING),                                       \
               page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER +          \
                   (2 * OUTLINE_PADDING),                                       \
-              displayStartX - OUTLINE_PADDING,                                 \
-              displayStartY - OUTLINE_PADDING,                                 \
-              displayStartX + (COORDS_MULTIPLIER * dispW) + OUTLINE_PADDING,   \
-              displayStartY + (COORDS_MULTIPLIER * dispH) + OUTLINE_PADDING,   \
-              page->charOutlineColor[renderIndex], _opacity);                  \
+              fitX0 - OUTLINE_PADDING,                                         \
+              fitY0 - OUTLINE_PADDING,                                         \
+              fitX0 + fitW + OUTLINE_PADDING,                                  \
+              fitY0 + fitH + OUTLINE_PADDING,                                  \
+              page->charOutlineColor[i], _opacity);                            \
         }                                                                      \
                                                                                \
         gameExeDrawGlyph(                                                      \
@@ -1661,11 +1714,11 @@ void logRtlDialogueDebugLineGroups(DialoguePage* page, int pageNumber) {
             FONT_CELL_WIDTH * page->glyphCol[renderIndex] * COORDS_MULTIPLIER,   \
             FONT_CELL_HEIGHT * page->glyphRow[renderIndex] * COORDS_MULTIPLIER,  \
             page->glyphOrigWidth[renderIndex] * COORDS_MULTIPLIER,              \
-            page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER, displayStartX, \
-            displayStartY,                                                     \
-            displayStartX + (COORDS_MULTIPLIER * dispW),                       \
-            displayStartY + (COORDS_MULTIPLIER * dispH),                       \
-            page->charColor[renderIndex], _opacity);                           \
+            page->glyphOrigHeight[renderIndex] * COORDS_MULTIPLIER, fitX0,      \
+            fitY0,                                                             \
+            fitX0 + fitW,                                                      \
+            fitY0 + fitH,                                                      \
+            page->charColor[i], _opacity);                                     \
       }                                                                        \
     }                                                                          \
   }
