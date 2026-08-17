@@ -18,11 +18,11 @@ git remote add origin https://github.com/USERNAME/REPOSITORY.git
 git push -u origin main
 ```
 
-بعد الرفع، افتح تبويب **Actions** في المستودع. ستجد workflow باسم **Build LanguageBarrier RTL**. سيبدأ تلقائياً عند push إلى فرع `main`، ويمكن تشغيله يدوياً من **Actions → Build LanguageBarrier RTL → Run workflow**.
+بعد الرفع، افتح تبويب **Actions** في المستودع. ستجد workflow باسم **Build LanguageBarrier Arabic dialogue**. سيبدأ تلقائياً عند push إلى فرعي `main` أو `master`، ويمكن تشغيله يدوياً من **Actions → Build LanguageBarrier Arabic dialogue → Run workflow**.
 
 ## تنزيل DLL
 
-عندما تنتهي العملية بنجاح، افتح تشغيل workflow ثم انزل إلى قسم **Artifacts**. نزّل الملف الذي اسمه قريب من:
+عندما تنتهي العملية بنجاح، افتح تشغيل workflow ثم انزل إلى قسم **Artifacts**. نزّل artifact الخاص بإعداد `dinput8-Release` واسمه:
 
 ```text
 LanguageBarrier-dinput8-Release
@@ -50,7 +50,7 @@ LanguageBarrier-main/.github/workflows/build.yml
 
 افتح تشغيل workflow الفاشل، وانسخ أول رسالة خطأ حمراء كاملة. الأخطاء الأكثر فائدة للتشخيص هي فشل `vcpkg install`، أو عدم إيجاد `VSFilter.lib`، أو عدم إيجاد `LanguageBarrier.sln`، أو فشل signature ليس من مرحلة البناء بل يظهر فقط عند تشغيل اللعبة.
 
-لا تحتاج إلى إضافة API key أو secret لهذا workflow؛ الاعتماديات العامة وVisual Studio تُثبت داخل runner. لكن GitHub Actions قد يتطلب تفعيل Actions في المستودع، وقد يفرض حدوداً على الدقائق المتاحة للحساب المجاني.
+لا تحتاج إلى إضافة API key أو secret لهذا workflow؛ الاعتماديات العامة وVisual Studio تُثبت داخل runner. يستخدم الحل `/p:Platform=x86` على مستوى الـsolution، ويحوّل المشروع داخليًا إلى Win32، بينما يستخدم vcpkg triplet `x86-windows-static-md`. لكن GitHub Actions قد يتطلب تفعيل Actions في المستودع، وقد يفرض حدوداً على الدقائق المتاحة للحساب المجاني.
 
 ## اختيار cryptbase بدلاً من dinput8
 

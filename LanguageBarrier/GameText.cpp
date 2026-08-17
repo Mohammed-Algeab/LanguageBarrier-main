@@ -741,12 +741,12 @@ int __cdecl gslFillHook(int id, int a1, int a2, int a3, int a4, int r, int g,
 GameID currentGame;
 bool UseNewTextSystem = false;
 bool UseRTLDialogue = false;
-// Logical (pre-COORDS_MULTIPLIER) right edge for RTL dialogue lines.
-// Zero keeps the automatic per-line mirror behavior.
+// Logical (pre-COORDS_MULTIPLIER) target right edge for RTL dialogue lines.
+// Zero leaves the engine's original horizontal layout unchanged.
 float RTL_DIALOGUE_RIGHT_X = 0.0f;
 bool RTL_DIALOGUE_KEEP_NAME_LINE = false;
-// Reverse glyph identities only while drawing dialogue pages. The SC3 source,
-// Backlog, and every non-dialogue renderer remain unchanged.
+// Deprecated compatibility setting. Arabic SC3 text is already reversed in
+// the script; this value is intentionally not used to reverse glyph identities.
 bool RTL_DIALOGUE_REVERSE_TEXT = false;
 // RTL debug logging
 bool RTL_DIALOGUE_DEBUG_LOG = false;
@@ -784,6 +784,8 @@ void gameTextInit() {
       config["patch"].value("rtlDialogueRightX", 0.0f);
   RTL_DIALOGUE_KEEP_NAME_LINE =
       config["patch"].value("rtlDialogueKeepNameLine", false);
+  // Read the legacy key only for backwards-compatible diagnostics. It must
+  // never control glyph order because the Arabic script is pre-reversed.
   RTL_DIALOGUE_REVERSE_TEXT =
       config["patch"].value("rtlDialogueReverseText", false);
   RTL_DIALOGUE_DEBUG_LOG =
@@ -1522,11 +1524,10 @@ bool isSpeakerNameLine(DialoguePage* page, int fontNumber, int glyphIndex) {
 }
 
 template <typename DialoguePage>
-int dialogueGlyphIndexForRender(DialoguePage* page, int fontNumber,
+int dialogueGlyphIndexForReveal(DialoguePage* page, int fontNumber,
                                 int glyphIndex) {
-  if (!RTL_DIALOGUE_REVERSE_TEXT)
-    return glyphIndex;
-
+  // The script already stores the Arabic replacement sequence reversed.
+  // Reverse only the opacity/reveal slot; never reverse glyph identities.
   const int lineY = page->charDisplayY[glyphIndex];
   int ordinal = 0;
   int lineCount = 0;
@@ -1552,10 +1553,12 @@ int dialogueGlyphIndexForRender(DialoguePage* page, int fontNumber,
 }
 
 template <typename DialoguePage>
-float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
-                           int xOffset) {
+float dialogueLineShiftX(DialoguePage* page, int fontNumber, int glyphIndex,
+                         int xOffset) {
+  if (RTL_DIALOGUE_RIGHT_X <= 0.0f)
+    return 0.0f;
+
   const int lineY = page->charDisplayY[glyphIndex];
-  float lineLeft = 1.0e30f;
   float lineRight = -1.0e30f;
   for (int j = 0; j < page->pageLength; ++j) {
     if (fontNumber != page->fontNumber[j] || page->charDisplayY[j] != lineY)
@@ -1564,21 +1567,13 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         (page->charDisplayX[j] + xOffset) * COORDS_MULTIPLIER;
     const float glyphRight =
         glyphLeft + page->glyphDisplayWidth[j] * COORDS_MULTIPLIER;
-    if (glyphLeft < lineLeft) lineLeft = glyphLeft;
-    if (glyphRight > lineRight) lineRight = glyphRight;
+    if (glyphRight > lineRight)
+      lineRight = glyphRight;
   }
-  if (lineLeft == 1.0e30f || lineRight == -1.0e30f)
-    return (page->charDisplayX[glyphIndex] + xOffset) * COORDS_MULTIPLIER;
+  if (lineRight == -1.0e30f)
+    return 0.0f;
 
-  const float glyphX =
-      (page->charDisplayX[glyphIndex] + xOffset) * COORDS_MULTIPLIER;
-  const float glyphWidth =
-      page->glyphDisplayWidth[glyphIndex] * COORDS_MULTIPLIER;
-  const float mirrorRight =
-      RTL_DIALOGUE_RIGHT_X > 0.0f
-          ? RTL_DIALOGUE_RIGHT_X * COORDS_MULTIPLIER
-          : lineRight;
-  return lineLeft + mirrorRight - glyphX - glyphWidth;
+  return RTL_DIALOGUE_RIGHT_X * COORDS_MULTIPLIER - lineRight;
 }
 
 #define DEF_DRAW_DIALOGUE_HOOK(funcName, pageType)                             \
@@ -1596,20 +1591,26 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
          * reveal opacity on the same slot. The previous experiment borrowed  \
          * the source from renderIndex while drawing inside slot i, which      \
          * caused the irregular glyph sizes. */                              \
-        const int renderIndex = i;                                             \
+                const int renderIndex = i;                                             \
+        const int revealIndex =                                                   \
+            (UseRTLDialogue && !keepNameLine)                                   \
+                ? dialogueGlyphIndexForReveal(page, fontNumber, i)              \
+                : i;                                                            \
                                                                                \
-        float displayStartX =                                                  \
-            (page->charDisplayX[i] + xOffset) * COORDS_MULTIPLIER;             \
-        int displayStartY =                                                    \
-            (page->charDisplayY[i] + yOffset) * COORDS_MULTIPLIER;             \
-        if (UseRTLDialogue && !keepNameLine)                                      \
-          displayStartX = mirrorDialogueGlyphX(page, fontNumber, i, xOffset);      \
+        /* Keep each glyph's original slot and relative order. RTL dialogue\
+         * uses only a whole-line translation to the configured right edge;\
+         * it does not mirror glyph positions or reverse the source text. */     \
+        const float lineShiftX =                                                \
+            (UseRTLDialogue && !keepNameLine)                                   \
+                ? dialogueLineShiftX(page, fontNumber, i, xOffset)              \
+                : 0.0f;                                                         \
+        float displayStartX =                                                   \
+            (page->charDisplayX[i] + xOffset) * COORDS_MULTIPLIER + lineShiftX; \
+        int displayStartY =                                                     \
+            (page->charDisplayY[i] + yOffset) * COORDS_MULTIPLIER;               \
                                                                                \
-        /* RTL typewriter fix: opacity follows visual slot (i), not glyph identity.\
-         * The engine fills opacity[0..N] LTR; after mirrorDialogueGlyphX, slot 0\
-         * moves to the RIGHT. So opacity[i] makes the RIGHTMOST glyph appear\
-         * FIRST -- correct RTL behavior. */                                     \
-        uint32_t _opacity = (page->charDisplayOpacity[i] * opacity) >> 8;       \
+        uint32_t _opacity =                                                    \
+            (page->charDisplayOpacity[revealIndex] * opacity) >> 8;             \
                                                                                \
         /* FIX: destination box (position AND size) must stay tied to the\
          * visual slot (i), matching what the engine's own word-wrap already\
@@ -1658,7 +1659,7 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         fitW *= scaleX;                                                       \
         fitH *= scaleY;                                                       \
                                                                                \
-        logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, renderIndex, \
+        logRtlDialogueDebugGlyph(page, pageNumber, fontNumber, i, revealIndex, \
                                   keepNameLine);                               \
                                                                                \
         /* Color/outline stay tied to slot i too -- same reasoning as size:  */ \

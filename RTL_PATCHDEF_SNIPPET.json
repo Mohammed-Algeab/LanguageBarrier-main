@@ -3,7 +3,7 @@
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
     "rtlDialogueKeepNameLine": true,
-    "rtlDialogueReverseText": true,
+    "rtlDialogueReverseText": false,
     "rtlDialogueDebugLog": false,
     "rtlDialogueDebugMaxLines": 200,
     "rtlDialogueGlyphScaleX": 1.0,
