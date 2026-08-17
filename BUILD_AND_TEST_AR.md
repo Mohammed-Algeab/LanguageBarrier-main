@@ -39,8 +39,8 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Debug /p:Platform=Win32
 إذا فشل MSBuild في إيجاد الاعتماديات، نفّذ بناء vcpkg للـ triplet x86 ثم أعد المحاولة:
 
 ```bat
-C:\vcpkg\vcpkg install --triplet x86-windows
-msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win32 /p:VcpkgEnabled=true
+C:\vcpkg\vcpkg install --triplet x86-windows-static-md
+msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win32 /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true
 ```
 
 في بعض تثبيتات Visual Studio يكون اسم المنصة في الحل `Win32` لكن vcpkg يستخدم `x86-windows`. هذا طبيعي؛ الأول يحدد معمارية MSBuild والثاني يحدد معمارية حزم vcpkg.
@@ -55,18 +55,20 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
     "rtlDialogueKeepNameLine": true,
-    "rtlDialogueReverseText": true
+    "rtlDialogueGlyphScaleX": 1.0,
+    "rtlDialogueGlyphScaleY": 1.0,
+    "rtlDialogueGlyphFitMode": "stretch"
   }
 }
 ```
 
-يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيارات عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل. إذا كان `rtlDialogueReverseText` مفعلاً، يبدّل hook مصدر glyph داخل صفحة الحوار فقط، ثم يطبق mirror X القديم. لا يغيّر السكربت أو Backlog أو النصوص العامة.
+يجب إبقاء `rtlDialogue` مفعلاً فقط أثناء الاختبار. الكود يقرأ الخيارات عند `gameTextInit()`، ثم يركّب hooks `drawDialogue` و`drawDialogue2` لمسار الحوار العام حتى لو كان `improveDialogueOutlines` غير مفعّل. في النسخة fixed لا يُستخدم `rtlDialogueReverseText` لعكس مصدر glyph؛ كل حرف يُقرأ من الخانة نفسها التي يُرسم داخلها، بينما تُعكس الإحداثيات الأفقية فقط للحوار الحي. هذا يمنع تفاوت الأحجام الناتج عن خلط source glyph بصندوق وجهة مختلف، ولا يغيّر السكربت أو Backlog أو النصوص العامة.
 
 ## ترتيب الاختبار
 
 انسخ DLL الناتج إلى مجلد اللعبة وفق طريقة patch الأصلية، واحتفظ بنسخة احتياطية من DLL والملفات الأصلية. لا تختبر فوق ملف الحفظ الوحيد؛ استخدم مشهداً قصيراً يمكن تكراره.
 
-ابدأ بجملة عربية قصيرة من كلمتين أو ثلاث. اختبر أولاً `rtlDialogueReverseText=false` لمقارنة RTL وحده، ثم اختبر `rtlDialogueReverseText=true`. في الوضع الثاني يجب أن تتبدل هوية glyphs داخل الحوار فقط مع بقاء موضع slot وأبعاده ثابتة، ثم يظهر السطر من اليمين إلى اليسار. كما يجب أن تستخدم حركة الكتابة التدريجية `opacity` الخاصة بالـ glyph المرئي نفسه؛ أي يظهر أول glyph منطقي أولاً من جهة اليمين، ثم تمتد الكتابة إلى اليسار. لا تغيّر ترتيب النص في الملفات ولا تفعل reverse خارج DLL أثناء هذه المقارنة.
+ابدأ بجملة عربية قصيرة من كلمتين أو ثلاث مع `rtlDialogueReverseText` غير مستخدم أو مضبوطًا على `false`. يجب أن يظهر كل glyph من مصدره الأصلي وبحجمه المتسق، بينما يتحول صندوقه أفقيًا داخل سطر الحوار ليبدأ العرض من اليمين ويمتد إلى اليسار. راقب الكتابة التدريجية من اليمين إلى اليسار، ولا تغيّر ترتيب النص في الملفات ولا تفعل reverse خارج DLL أثناء هذا الاختبار.
 
 بعد ذلك اختبر سطراً طويلاً يلتف إلى سطرين. في كل سطر يجب أن يبقى اتجاه الإضافة من اليمين إلى اليسار. راقب الحركة أثناء أول ثواني من ظهور الجملة، لا الإطار النهائي فقط. اختبر أيضاً اسم المتحدث، لأن hook العام قد يشمله إذا كان مخزناً في نفس DialoguePage. ثم اختبر الانتقال إلى الجملة التالية للتأكد من عدم وجود تداخل؛ التعديل الحالي لا يغير Backlog أو mail عمداً.
 
@@ -76,8 +78,8 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 |---|---|
 | لا يوجد تغيير إطلاقاً | DLL غير محمّل، أو patch يستخدم configuration آخر، أو signatures لا تطابق executable |
 | النص يبدأ يميناً وينتشر يساراً لكن الكلمات متصلة خطأ | اتجاه الإحداثيات يعمل، لكن هناك حاجة إلى shaping؛ هذا ليس عكساً للنص |
-| الإطار النهائي صحيح لكن الظهور التدريجي يبدأ من الطرف الخطأ | تأكد أن DLL الجديد يحتوي `charDisplayOpacity[renderIndex]`، وأن السجل يقرأ `reverseText=1` |
-| اتجاه RTL صحيح لكن المحتوى معكوس | فعّل `rtlDialogueReverseText=true` داخل الحوار فقط، ولا تعكس النص في السكربت أثناء الاختبار |
+| الإطار النهائي صحيح لكن الظهور التدريجي يبدأ من الطرف الخطأ | نحتاج تعديل مصدر العتامة فقط داخل hook الرسم؛ لا نعيد استعمال `renderIndex` لمصدر glyph أو metrics |
+| الأحجام متساوية لكن اتصال العربية غير صحيح | اتجاه الرسم يعمل، لكن shaping/contextual forms غير موجودة في أطلس اللعبة؛ هذه مرحلة مستقلة عن RTL |
 | السطر الثاني غير صحيح | حدود الأسطر التي تبنيها اللعبة لا تتوافق مع شرط Y الحالي؛ نحتاج تعديل helper ليستخدم معلومات line-break الأصلية |
 | crash عند بدء اللعبة | DLL أو configuration غير متوافق، أو signature خاطئة؛ أعد DLL الأصلي وافحص `languagebarrier\log.txt` |
 
@@ -89,8 +91,8 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 languagebarrier\log.txt
 ```
 
-تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. يجب أن يظهر أيضاً سطر يبدأ بـ `RTL dialogue config:` وينتهي بقيمة `reverseText=1` عند تفعيل الخيار. إذا لم يصل التنفيذ إلى hook، أرسل ملف السجل وملف `gamedef.json` المستخدم، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
+تأكد من ظهور اسم اللعبة واسم patch وعدم وجود فشل في `drawDialogue` أو signature scanning. يجب أن يظهر أيضاً سطر يبدأ بـ `RTL dialogue config:`. قيمة `reverseText` القديمة ليست معيار نجاح في النسخة fixed؛ المعيار هو عدم وجود خلط بين source glyph وdestination box أو تفاوت حجمي ناتج عنه. إذا لم يصل التنفيذ إلى hook، أرسل ملف السجل وملف `gamedef.json` المستخدم، لأن الأرشيف الحالي يحتوي core العام ولا يحتوي signatures الخاصة بإصدار Steins;Gate عند المستخدم.
 
 ## حدود النسخة الحالية
 
-هذه النسخة لا تقلب النص ولا تنفذ shaping، وهو مناسب للحالة التي يكون فيها السكربت الياباني مجرد مصدر glyph IDs وتكون الترجمة العربية جاهزة بالتشكيل في الخط أو في طبقة patch الأخرى. التعديل يغيّر مواضع الرسم فقط ويحافظ على ترتيب الحلقة وكشف النص. بناء DLL فعلي لم يتم داخل بيئة Ubuntu الحالية لغياب MSVC وWindows SDK؛ يجب تنفيذ الأوامر أعلاه على Windows أو عبر بيئة Visual Studio متوافقة.
+هذه النسخة لا تنفذ shaping عربيًا؛ فهي تعزل اتجاه الرسم عن تشكيل الحروف. إذا ظهرت حروف عربية منفصلة أو أشكال ابتدائية/وسطية/نهائية غير صحيحة، فذلك يعني أن مرحلة shaping أو mapping إلى أطلس الخط تحتاج معالجة مستقلة لاحقًا. التعديل الحالي يغيّر مواضع الرسم فقط، ويحافظ على أن يكون source glyph والـmetrics وصندوق الوجهة من الفهرس نفسه، مع إبقاء Backlog والهاتف خارج هذا المسار. بناء DLL فعلي لم يتم داخل بيئة Ubuntu الحالية لغياب MSVC وWindows SDK؛ يجب تنفيذ الأوامر أعلاه على Windows أو عبر بيئة Visual Studio متوافقة.

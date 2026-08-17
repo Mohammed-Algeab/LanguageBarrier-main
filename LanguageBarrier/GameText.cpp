@@ -1592,9 +1592,11 @@ float mirrorDialogueGlyphX(DialoguePage* page, int fontNumber, int glyphIndex,
         const bool keepNameLine =                                               \
             RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
             isSpeakerNameLine(page, fontNumber, i);                             \
-        const int renderIndex =                                                 \
-            keepNameLine ? i                                                    \
-                         : dialogueGlyphIndexForRender(page, fontNumber, i);    \
+        /* Keep glyph source, crop, metrics, destination box, color, and      \
+         * reveal opacity on the same slot. The previous experiment borrowed  \
+         * the source from renderIndex while drawing inside slot i, which      \
+         * caused the irregular glyph sizes. */                              \
+        const int renderIndex = i;                                             \
                                                                                \
         float displayStartX =                                                  \
             (page->charDisplayX[i] + xOffset) * COORDS_MULTIPLIER;             \

@@ -1,4 +1,4 @@
-name: Build LanguageBarrier RTL
+name: Build LanguageBarrier Arabic dialogue
 
 on:
   workflow_dispatch:
@@ -35,6 +35,18 @@ jobs:
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Validate vendored build inputs
+        shell: pwsh
+        run: |
+          $required = @(
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\xy-vsfilter\VSFilter.lib"),
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\include"),
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\Release")
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Required build input is missing: $path" }
+          }
+
       - name: Install vcpkg and manifest dependencies
         shell: pwsh
         env:
@@ -47,7 +59,7 @@ jobs:
           }
           & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
           if ($LASTEXITCODE -ne 0) { throw "vcpkg MSBuild integration failed" }
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x86-windows --x-manifest-root "$env:GITHUB_WORKSPACE"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x86-windows-static-md --x-manifest-root "$env:GITHUB_WORKSPACE"
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
 
       - name: Build Win32 DLL
@@ -56,7 +68,7 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         run: |
           $solution = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier.sln"
-          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=x86 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
+          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=Win32 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed" }
 
       - name: Collect build output
@@ -83,6 +95,7 @@ jobs:
           @"
           Build configuration: ${{ matrix.configuration }}
           Architecture: Win32 / x86
+          Renderer policy: source glyph, destination box, metrics, color, and opacity share the same slot
           RTL option: patch.rtlDialogue=true
           "@ | Set-Content (Join-Path $artifact "BUILD_INFO.txt")
 
