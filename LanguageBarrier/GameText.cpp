@@ -741,6 +741,11 @@ int __cdecl gslFillHook(int id, int a1, int a2, int a3, int a4, int r, int g,
 GameID currentGame;
 bool UseNewTextSystem = false;
 bool UseRTLDialogue = false;
+// Phone RTL is independent from dialogue RTL. The phone renderer already
+// receives the script's pre-reversed SC3 sequence; this option only aligns
+// each laid-out line to a logical right edge.
+bool UseRTLPhone = false;
+float RTL_PHONE_RIGHT_X = 0.0f;
 // Logical (pre-COORDS_MULTIPLIER) target right edge for RTL dialogue lines.
 // Zero leaves the engine's original horizontal layout unchanged.
 float RTL_DIALOGUE_RIGHT_X = 0.0f;
@@ -780,6 +785,8 @@ void gameTextInit() {
   if (config["patch"].count("useNewTextSystem") == 1)
     UseNewTextSystem = config["patch"]["useNewTextSystem"].get<bool>();
   UseRTLDialogue = config["patch"].value("rtlDialogue", false);
+  UseRTLPhone = config["patch"].value("rtlPhone", false);
+  RTL_PHONE_RIGHT_X = config["patch"].value("rtlPhoneRightX", 0.0f);
   RTL_DIALOGUE_RIGHT_X =
       config["patch"].value("rtlDialogueRightX", 0.0f);
   RTL_DIALOGUE_KEEP_NAME_LINE =
@@ -807,6 +814,8 @@ void gameTextInit() {
     std::stringstream rtlLog;
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
            << ", rightX=" << RTL_DIALOGUE_RIGHT_X
+           << ", phoneEnabled=" << (UseRTLPhone ? 1 : 0)
+           << ", phoneRightX=" << RTL_PHONE_RIGHT_X
            << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
            << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0)
            << ", debugLog=" << (RTL_DIALOGUE_DEBUG_LOG ? 1 : 0)
@@ -3023,6 +3032,44 @@ void processSc3TokenList(int xOffset, int yOffset, int lineLength,
   result->usedLineLength = curLineLength ? curLineLength : prevLineLength;
 }
 
+static void rtlAlignPhoneLines(ProcessedSc3String_t& str) {
+  if (!UseRTLPhone || RTL_PHONE_RIGHT_X <= 0.0f || str.length <= 0)
+    return;
+
+  const int targetRight =
+      static_cast<int>(RTL_PHONE_RIGHT_X * COORDS_MULTIPLIER + 0.5f);
+  const int noLine = -0x7FFFFFFF;
+
+  for (int i = 0; i < str.length; ++i) {
+    const int lineY = str.displayStartY[i];
+    bool firstGlyphOnLine = true;
+    for (int j = 0; j < i; ++j) {
+      if (str.displayStartY[j] == lineY) {
+        firstGlyphOnLine = false;
+        break;
+      }
+    }
+    if (!firstGlyphOnLine)
+      continue;
+
+    int lineRight = noLine;
+    for (int j = 0; j < str.length; ++j) {
+      if (str.displayStartY[j] == lineY && str.displayEndX[j] > lineRight)
+        lineRight = str.displayEndX[j];
+    }
+    if (lineRight == noLine)
+      continue;
+
+    const int lineShiftX = targetRight - lineRight;
+    for (int j = 0; j < str.length; ++j) {
+      if (str.displayStartY[j] != lineY)
+        continue;
+      str.displayStartX[j] += lineShiftX;
+      str.displayEndX[j] += lineShiftX;
+    }
+  }
+}
+
 int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                               int lineLength, char* sc3string,
                               int lineSkipCount, int lineDisplayCount,
@@ -3046,6 +3093,8 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                       color, baseGlyphSize, &str, false, COORDS_MULTIPLIER,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, nullptr);
+
+  rtlAlignPhoneLines(str);
 
   for (int i = 0; i < str.length; i++) {
     gameExeDrawGlyph(textureId, str.textureStartX[i], str.textureStartY[i],

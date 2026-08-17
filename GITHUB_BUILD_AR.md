@@ -18,7 +18,7 @@ git remote add origin https://github.com/USERNAME/REPOSITORY.git
 git push -u origin main
 ```
 
-بعد الرفع، افتح تبويب **Actions** في المستودع. ستجد workflow باسم **Build LanguageBarrier Arabic dialogue**. سيبدأ تلقائياً عند push إلى فرعي `main` أو `master`، ويمكن تشغيله يدوياً من **Actions → Build LanguageBarrier Arabic dialogue → Run workflow**.
+بعد الرفع، افتح تبويب **Actions** في المستودع. ستجد workflow باسم **Build LanguageBarrier Arabic dialogue**. سيبدأ تلقائياً عند push إلى فرعي `main` أو `master`، ويمكن تشغيله يدوياً من **Actions → Build LanguageBarrier Arabic dialogue → Run workflow**. النسخة الحالية لا تستخدم `microsoft/setup-msbuild` ولا `ilammy/msvc-dev-cmd`؛ بل تكتشف Visual Studio وMSBuild و`VsDevCmd.bat` المثبتة مسبقًا في runner `windows-2022`، لتجنب فشل تنزيل الأكشن من `codeload.github.com`.
 
 ## تنزيل DLL
 
@@ -48,9 +48,9 @@ LanguageBarrier-main/.github/workflows/build.yml
 
 ## إذا فشل البناء
 
-افتح تشغيل workflow الفاشل، وانسخ أول رسالة خطأ حمراء كاملة. الأخطاء الأكثر فائدة للتشخيص هي فشل `vcpkg install`، أو عدم إيجاد `VSFilter.lib`، أو عدم إيجاد `LanguageBarrier.sln`، أو فشل signature ليس من مرحلة البناء بل يظهر فقط عند تشغيل اللعبة.
+افتح تشغيل workflow الفاشل، وانسخ أول رسالة خطأ حمراء كاملة. إذا ظهر خطأ `429 Too Many Requests` أو `503 Service Unavailable` من `codeload.github.com/microsoft/setup-msbuild`، فهذا يعني أن نسخة قديمة من workflow ما زالت تعمل؛ تأكد من push لملف `.github/workflows/build.yml` الجديد ثم أعد تشغيل أحدث commit. في النسخة الحالية تُفحص أولاً ملفات Visual Studio عبر `vswhere.exe`، ثم تظهر أخطاء البناء الفعلية فقط إذا فشل `vcpkg install` أو لم توجد `VSFilter.lib` أو لم يوجد `LanguageBarrier.sln`.
 
-لا تحتاج إلى إضافة API key أو secret لهذا workflow؛ الاعتماديات العامة وVisual Studio تُثبت داخل runner. يستخدم الحل `/p:Platform=x86` على مستوى الـsolution، ويحوّل المشروع داخليًا إلى Win32، بينما يستخدم vcpkg triplet `x86-windows-static-md`. لكن GitHub Actions قد يتطلب تفعيل Actions في المستودع، وقد يفرض حدوداً على الدقائق المتاحة للحساب المجاني.
+لا تحتاج إلى إضافة API key أو secret لهذا workflow؛ Visual Studio وMSBuild وVC tools موجودة مسبقًا في `windows-2022`، بينما يجلب workflow vcpkg والاعتماديات المطلوبة. يستخدم الحل `/p:Platform=x86` على مستوى الـsolution، ويحوّل المشروع داخليًا إلى Win32، بينما يستخدم vcpkg triplet `x86-windows-static-md`. قد يتطلب GitHub Actions تفعيل Actions في المستودع، وقد يفرض حدودًا على الدقائق المتاحة للحساب المجاني.
 
 ## اختيار cryptbase بدلاً من dinput8
 
