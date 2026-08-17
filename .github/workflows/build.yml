@@ -40,8 +40,8 @@ jobs:
         run: |
           $required = @(
             (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\xy-vsfilter\VSFilter.lib"),
-            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\include"),
-            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\Release")
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\xy-vsfilter\VSFilter.dll"),
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\include")
           )
           foreach ($path in $required) {
             if (-not (Test-Path $path)) { throw "Required build input is missing: $path" }
