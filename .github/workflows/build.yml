@@ -27,13 +27,29 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Set up MSVC developer environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x86
+      # windows-2022 already includes Visual Studio, MSBuild, VC tools, and vswhere.
+      # Discover them locally instead of downloading setup actions from codeload.github.com.
+      - name: Locate Visual Studio tools
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found on the hosted runner" }
 
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
+          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if ($null -eq $installPath) { throw "Visual Studio C++ tools were not found" }
+          $installPath = $installPath.ToString().Trim()
+
+          $msbuild = Join-Path $installPath "MSBuild\Current\Bin\MSBuild.exe"
+          $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
+          if (-not (Test-Path $msbuild)) { throw "MSBuild.exe was not found at $msbuild" }
+          if (-not (Test-Path $vsDevCmd)) { throw "VsDevCmd.bat was not found at $vsDevCmd" }
+
+          "MSBUILD_PATH=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VSDEVCMD_PATH=$vsDevCmd" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VSINSTALL_PATH=$installPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using Visual Studio at $installPath"
+          Write-Host "Using MSBuild at $msbuild"
+
 
       - name: Validate vendored build inputs
         shell: pwsh
@@ -63,13 +79,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
 
       - name: Build Win32 DLL
-        shell: pwsh
+        shell: cmd
         env:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         run: |
-          $solution = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier.sln"
-          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=x86 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
-          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed" }
+          call "%VSDEVCMD_PATH%" -arch=x86 -host_arch=x86
+          if errorlevel 1 exit /b %errorlevel%
+          "%MSBUILD_PATH%" "%GITHUB_WORKSPACE%\LanguageBarrier.sln" /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=x86 /p:VcpkgRoot="%VCPKG_ROOT%" /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
+          if errorlevel 1 exit /b %errorlevel%
 
       - name: Collect build output
         shell: pwsh
@@ -96,7 +113,8 @@ jobs:
           Build configuration: ${{ matrix.configuration }}
           Solution platform: x86 (maps to project platform Win32)
           Renderer policy: source glyph, destination box, metrics, color, and opacity share the same slot
-          RTL option: patch.rtlDialogue=true
+          RTL option: patch.rtlDialogue=true; patch.rtlDialogueReverseText=false
+          Toolchain: Visual Studio preinstalled on windows-2022; no setup-msbuild download
           "@ | Set-Content (Join-Path $artifact "BUILD_INFO.txt")
 
           Get-ChildItem -Path $artifact -File | Format-Table Name, Length
