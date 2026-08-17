@@ -68,7 +68,7 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}\vcpkg
         run: |
           $solution = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier.sln"
-          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=Win32 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
+          msbuild $solution /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=x86 /p:VcpkgRoot="$env:VCPKG_ROOT" /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true /p:RestorePackagesConfig=false
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed" }
 
       - name: Collect build output
@@ -94,7 +94,7 @@ jobs:
 
           @"
           Build configuration: ${{ matrix.configuration }}
-          Architecture: Win32 / x86
+          Solution platform: x86 (maps to project platform Win32)
           Renderer policy: source glyph, destination box, metrics, color, and opacity share the same slot
           RTL option: patch.rtlDialogue=true
           "@ | Set-Content (Join-Path $artifact "BUILD_INFO.txt")

@@ -31,7 +31,7 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win3
 لنسخة Debug:
 
 ```bat
-msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Debug /p:Platform=Win32
+msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Debug /p:Platform=x86
 ```
 
 الناتج المتوقع هو `dinput8.dll` داخل مجلد `bin` أو مجلد الإخراج الذي يحدده Visual Studio. إعدادات `cryptbase-Release` و`cryptbase-Debug` تنتج `cryptbase.dll` بدلاً من `dinput8.dll`، ولا ينبغي اختيارها إلا إذا كان patch المستهدف يستخدم طريقة تحميل cryptbase.
@@ -40,10 +40,10 @@ msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Debug /p:Platform=Win32
 
 ```bat
 C:\vcpkg\vcpkg install --triplet x86-windows-static-md
-msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=Win32 /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true
+msbuild LanguageBarrier.sln /m /p:Configuration=dinput8-Release /p:Platform=x86 /p:VcpkgUserTriplet=x86-windows-static-md /p:VcpkgEnabled=true
 ```
 
-في بعض تثبيتات Visual Studio يكون اسم المنصة في الحل `Win32` لكن vcpkg يستخدم `x86-windows-static-md`. هذا طبيعي؛ الأول يحدد معمارية MSBuild والثاني يحدد معمارية حزم vcpkg. يجب أن توجد الملفات `LanguageBarrier/contrib/lib/xy-vsfilter/VSFilter.lib` و`VSFilter.dll`، إضافة إلى `LanguageBarrier/contrib/include`؛ ولا توجد حاجة لمجلد `contrib/lib/Release`.
+في هذا الحل تحديدًا، اسم المنصة في `LanguageBarrier.sln` هو `x86`، بينما mapping داخل ملف الحل يوجهها إلى مشروع `LanguageBarrier.vcxproj` بمنصة `Win32`. لذلك يجب استعمال `/p:Platform=x86` عند بناء ملف `.sln`. أما vcpkg فيستخدم `x86-windows-static-md` لتحديد معمارية الحزم؛ وهما اسمان مختلفان بطبيعة الحال. يجب أن توجد الملفات `LanguageBarrier/contrib/lib/xy-vsfilter/VSFilter.lib` و`VSFilter.dll`، إضافة إلى `LanguageBarrier/contrib/include`؛ ولا توجد حاجة لمجلد `contrib/lib/Release`.
 
 ## تفعيل الوضع
 
