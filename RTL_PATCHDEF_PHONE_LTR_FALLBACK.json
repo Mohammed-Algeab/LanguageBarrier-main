@@ -3,7 +3,7 @@
     "rtlDialogue": true,
     "rtlDialogueRightX": 1200,
     "rtlDialogueKeepNameLine": true,
-    "rtlPhone": true,
+    "rtlPhone": false,
     "rtlPhoneMultilineOnly": true,
     "rtlPhoneRightX": 120
   }

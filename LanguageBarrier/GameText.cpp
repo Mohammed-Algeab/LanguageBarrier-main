@@ -1,4 +1,5 @@
 #include "GameText.h"
+#include <algorithm>
 #include <fstream>
 #include <list>
 #include <sstream>
@@ -745,6 +746,10 @@ bool UseRTLDialogue = false;
 // receives the script's pre-reversed SC3 sequence; this option only aligns
 // each laid-out line to the right edge of the engine-provided phone text box.
 bool UseRTLPhone = false;
+// Apply phone RTL only to calls that can represent a message body or a scrolled
+// multi-line region. Single-line calls commonly draw names, subjects, labels,
+// or other UI text that must keep the engine's original LTR placement.
+bool RTL_PHONE_MULTILINE_ONLY = true;
 // Inward padding from the phone text box's computed right edge, measured in
 // final render pixels. This preserves the legacy patch key name while making
 // it an offset rather than an absolute screen coordinate.
@@ -789,6 +794,8 @@ void gameTextInit() {
     UseNewTextSystem = config["patch"]["useNewTextSystem"].get<bool>();
   UseRTLDialogue = config["patch"].value("rtlDialogue", false);
   UseRTLPhone = config["patch"].value("rtlPhone", false);
+  RTL_PHONE_MULTILINE_ONLY =
+      config["patch"].value("rtlPhoneMultilineOnly", true);
   RTL_PHONE_RIGHT_X = config["patch"].value("rtlPhoneRightX", 0.0f);
   RTL_DIALOGUE_RIGHT_X =
       config["patch"].value("rtlDialogueRightX", 0.0f);
@@ -818,6 +825,7 @@ void gameTextInit() {
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
            << ", rightX=" << RTL_DIALOGUE_RIGHT_X
            << ", phoneEnabled=" << (UseRTLPhone ? 1 : 0)
+           << ", phoneMultilineOnly=" << (RTL_PHONE_MULTILINE_ONLY ? 1 : 0)
            << ", phoneRightInset=" << RTL_PHONE_RIGHT_X
            << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
            << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0)
@@ -3035,9 +3043,23 @@ void processSc3TokenList(int xOffset, int yOffset, int lineLength,
   result->usedLineLength = curLineLength ? curLineLength : prevLineLength;
 }
 
+static bool rtlPhoneCallAllowsAlignment(int lineSkipCount,
+                                         int lineDisplayCount) {
+  if (!UseRTLPhone)
+    return false;
+
+  // drawPhoneTextHook is shared by several phone UI elements. A one-line,
+  // non-scrolling call is normally a name, subject, label, or list row rather
+  // than the message body. Keep those calls in the original LTR layout unless
+  // the user explicitly opts into the broad legacy behaviour.
+  if (RTL_PHONE_MULTILINE_ONLY && lineSkipCount <= 0 && lineDisplayCount <= 1)
+    return false;
+  return true;
+}
+
 static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
-                                int lineLength) {
-  if (!UseRTLPhone || str.length <= 0 || lineLength <= 0)
+                                int lineLength, bool enabled) {
+  if (!enabled || str.length <= 0 || lineLength <= 0)
     return;
 
   // processSc3TokenList applies this same padding internally before wrapping
@@ -3059,10 +3081,14 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
   // rtlPhoneRightX is retained as an optional inward inset. With the requested
   // legacy value 120, every line ends 120 final-render pixels before the
   // computed right edge; it can be set to 0 for a flush right edge.
+  const float phoneLeftEdge = xOffset * COORDS_MULTIPLIER;
   const float phoneRightEdge =
       (xOffset + lineLength) * COORDS_MULTIPLIER;
-  const int targetRight = static_cast<int>(
+  const int requestedRight = static_cast<int>(
       phoneRightEdge - RTL_PHONE_RIGHT_X + 0.5f);
+  const int boxLeft = static_cast<int>(phoneLeftEdge + 0.5f);
+  const int boxRight = static_cast<int>(phoneRightEdge + 0.5f);
+  const int targetRight = std::max(boxLeft, std::min(requestedRight, boxRight));
   const int noLine = -0x7FFFFFFF;
 
   for (int i = 0; i < str.length; ++i) {
@@ -3077,15 +3103,22 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
     if (!firstGlyphOnLine)
       continue;
 
+    int lineLeft = 0x7FFFFFFF;
     int lineRight = noLine;
     for (int j = 0; j < str.length; ++j) {
-      if (str.displayStartY[j] == lineY && str.displayEndX[j] > lineRight)
-        lineRight = str.displayEndX[j];
+      if (str.displayStartY[j] != lineY)
+        continue;
+      lineLeft = std::min(lineLeft, str.displayStartX[j]);
+      lineRight = std::max(lineRight, str.displayEndX[j]);
     }
-    if (lineRight == noLine)
+    if (lineRight == noLine || lineLeft == 0x7FFFFFFF)
       continue;
 
-    const int lineShiftX = targetRight - lineRight;
+    const int requestedShift = targetRight - lineRight;
+    const int minimumShift = boxLeft - lineLeft;
+    const int maximumShift = boxRight - lineRight;
+    const int lineShiftX = std::max(minimumShift,
+                                    std::min(requestedShift, maximumShift));
     for (int j = 0; j < str.length; ++j) {
       if (str.displayStartY[j] != lineY)
         continue;
@@ -3119,7 +3152,9 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, nullptr);
 
-  rtlAlignPhoneLines(str, xOffset, lineLength);
+  const bool alignThisPhoneCall =
+      rtlPhoneCallAllowsAlignment(lineSkipCount, lineDisplayCount);
+  rtlAlignPhoneLines(str, xOffset, lineLength, alignThisPhoneCall);
 
   for (int i = 0; i < str.length; i++) {
     gameExeDrawGlyph(textureId, str.textureStartX[i], str.textureStartY[i],
