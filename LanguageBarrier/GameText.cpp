@@ -1692,9 +1692,9 @@ float dialogueLineShiftX(DialoguePage* page, int fontNumber, int glyphIndex,
         const bool keepNameLine =                                               \
             RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
             isSpeakerNameLine(page, fontNumber, i);                             \
-        // [phone-ltr] is removed from SC3 before layout and leaves this       \
-        // per-string flag. The call bubble uses the same dialogue renderer   \
-        // as normal dialogue, but must retain the engine's original LTR path. \
+        /* [phone-ltr] is removed from SC3 before layout and leaves this       \
+         * per-string flag. The call bubble uses the same dialogue renderer   \
+         * as normal dialogue, but must retain the engine's original LTR path. */ \
         const bool applyRTL = UseRTLDialogue && !keepNameLine &&               \
                               !g_dialogueForceLTR;                              \
         /* Keep glyph source, crop, metrics, destination box, color, and      \

@@ -32,6 +32,7 @@ class LazyAllocatingProcessedString {
  public:
   LazyAllocatingProcessedString(ProcessedString_t& result_, const char* base)
       : result(result_), processedBegin(base), processedEnd(base) {}
+  void markForceLTR() { result.forceLTR = true; }
   void appendFragment(const char* fragmentBegin, const char* fragmentEnd) {
     if (processedEnd == fragmentBegin) {
       processedEnd = fragmentEnd;
@@ -187,7 +188,7 @@ static void replaceTextFragment(const char* fragBegin, const char* fragEnd,
   std::string markerStripped;
   if (stripPhoneLtrMarkers(fragBegin, fragEnd, markerStripped)) {
     g_dialogueForceLTR = true;
-    result.forceLTR = true;
+    result.markForceLTR();
     fragBegin = markerStripped.data();
     fragEnd = fragBegin + markerStripped.size();
   }
