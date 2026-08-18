@@ -28,3 +28,12 @@
 - مسارا `sghdGetLinksFromSc3StringHook` و`sghdDrawLinkHighlightHook` يحسبان مواضع الروابط بصورة مستقلة؛ أي إزاحة RTL للرسم وحده ستكسر hitboxes/highlights ما لم تُطبّق المعادلة نفسها عليهما.
 - مسارا `sgpDrawMailTextHook` و`sgpDrawMailTextContentHook` منفصلان عن SGHD التفاعلي، ويستخدمان `startX/startY/lineLength` مع line count ثابتين، لذا لا يصح دمجهما تلقائيًا في أول إصلاح.
 - عبارات الحالة مثل `Sending mail`, `Mail sent`, و`Calling` تحتاج allowlist أو تمييزًا من معاملات الاستدعاء/النص الخام؛ لا يجوز افتراض أنها جسم رسالة متعدد الأسطر.
+
+
+## إصلاح v12: عزل عناصر حالة الاتصال
+
+- أضيف `rtlPhoneVisibleLineCount` ليحسب الأسطر المرئية فعليًا من glyphs التي ستُرسم، بدل الاعتماد على `lineSkipCount` و`lineDisplayCount` اللذين قد يحملان قيمًا تبدو كأنها تمرير حتى في عناصر الحالة القصيرة.
+- أصبحت `rtlPhoneCallAllowsAlignment` ترفض محاذاة أي نتيجة مرئية من سطر واحد عندما يكون `rtlPhoneMultilineOnly=true`. وبذلك تبقى `Calling` و`Mail sent` وأسماء/عناوين الصفوف في إحداثياتها الأصلية.
+- `drawPhoneCallNameHook` لا يستدعي أي helper RTL، وأضيف تعليق صريح يثبت أن اسم المتصل/حالة الاسم خارج محاذاة جسم الرسائل.
+- `drawChatMessageHook` لا يستدعي أي helper RTL، وأضيف تعليق صريح يثبت أن فقاعة المكالمة تبقى على مسارها LTR الأصلي.
+- لا يوجد تغيير في ترتيب glyphs أو Arabic shaping أو منطق الحوار؛ التغيير الوحيد هو قرار تطبيق الإزاحة على جسم الهاتف متعدد الأسطر.

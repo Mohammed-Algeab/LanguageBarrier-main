@@ -2556,6 +2556,8 @@ int __cdecl drawTipMessageHook(int textureId, int a2, int a3, char* sc3String,
 int __cdecl drawChatMessageHook(int a2, float a3, float a4, float a5, char* sc3,
                                 float a7, int color, float a9,
                                 uint32_t opacity) {
+  // The call bubble intentionally remains on the game's original LTR path.
+  // RTL alignment is applied only to the phone message body hook below.
   int lineLength = a5;
   std::list<StringWord_t> words;
 
@@ -3062,19 +3064,37 @@ void processSc3TokenList(int xOffset, int yOffset, int lineLength,
   result->usedLineLength = curLineLength ? curLineLength : prevLineLength;
 }
 
-static bool rtlPhoneCallAllowsAlignment(int lineSkipCount,
-                                         int lineDisplayCount,
-                                         int renderedLineCount) {
+static int rtlPhoneVisibleLineCount(const ProcessedSc3String_t& str) {
+  int visibleLineCount = 0;
+  for (int i = 0; i < str.length; ++i) {
+    if (str.textureWidth[i] <= 0 || str.textureHeight[i] <= 0)
+      continue;
+
+    bool firstGlyphOnLine = true;
+    for (int j = 0; j < i; ++j) {
+      if (str.textureWidth[j] > 0 && str.textureHeight[j] > 0 &&
+          str.displayStartY[j] == str.displayStartY[i]) {
+        firstGlyphOnLine = false;
+        break;
+      }
+    }
+    if (firstGlyphOnLine)
+      ++visibleLineCount;
+  }
+  return visibleLineCount;
+}
+
+static bool rtlPhoneCallAllowsAlignment(int renderedLineCount) {
   if (!UseRTLPhone)
     return false;
 
-  // drawPhoneTextHook is shared by several phone UI elements. A one-line,
-  // non-scrolling call is normally a name, subject, label, status, or list row
-  // rather than the message body. Use the actual laid-out line count as well as
-  // the engine's scroll counters, so strings such as "Calling" and "Mail sent"
-  // remain in the original LTR placement.
-  if (RTL_PHONE_MULTILINE_ONLY && lineSkipCount <= 0 &&
-      lineDisplayCount <= 1 && renderedLineCount <= 1)
+  // drawPhoneTextHook is shared by several phone UI elements. A one-line
+  // result is normally a name, subject, label, status, or list row rather than
+  // the message body. Do not rely on the engine's scroll counters here: some
+  // status calls pass values that look like a scrolling request even though
+  // the visible result is still one line. This keeps strings such as "Calling"
+  // and "Mail sent" at their original LTR coordinates.
+  if (RTL_PHONE_MULTILINE_ONLY && renderedLineCount <= 1)
     return false;
   return true;
 }
@@ -3201,8 +3221,9 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, nullptr);
 
-  const bool alignThisPhoneCall = rtlPhoneCallAllowsAlignment(
-      lineSkipCount, lineDisplayCount, str.lines);
+  const int visiblePhoneLineCount = rtlPhoneVisibleLineCount(str);
+  const bool alignThisPhoneCall =
+      rtlPhoneCallAllowsAlignment(visiblePhoneLineCount);
   rtlAlignPhoneLines(str, xOffset, lineLength, alignThisPhoneCall);
 
   for (int i = 0; i < str.length; i++) {
@@ -3902,6 +3923,8 @@ void drawReportContentHook(int textureId, int maskId, int a3, int a4,
 void drawPhoneCallNameHook(int textureId, int maskId, int a3, int a4, int a5,
                            int a6, unsigned int a7, char* a8, int a9, int color,
                            unsigned int a11, signed int opacity) {
+  // Caller-name/status rendering is deliberately kept at the original
+  // coordinates. It must not inherit the RTL alignment used for message rows.
   ProcessedSc3String_t str;
 
   int dummy1;
