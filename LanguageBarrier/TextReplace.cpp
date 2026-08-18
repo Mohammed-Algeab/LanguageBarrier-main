@@ -1,8 +1,8 @@
-#include "TextReplace.h"
 #include <string>
 #include <set>
 #include <vector>
 #include "Config.h"
+#include "TextReplace.h"
 
 // global text replacement code and data
 namespace {
@@ -21,7 +21,8 @@ struct TextReplacement_t {
 struct ProcessedString_t {
   std::string replaced;
   bool useOriginal = false;
-} ;
+  bool forceLTR = false;
+};
 
 class LazyAllocatingProcessedString {
   ProcessedString_t& result;
@@ -62,7 +63,54 @@ static bool parseTextReplacement(const json& val, std::string& result) {
 
 static std::vector<TextReplacement_t> globalTextReplacements;
 
+static constexpr unsigned char kPhoneLtrMarkerHigh = 0x8B;
+static constexpr unsigned char kPhoneLtrMarkerLow = 0x2D;
+
+static bool containsPhoneLtrMarker(const char* base) {
+  if (base == nullptr) return false;
+  for (const unsigned char* ptr =
+           reinterpret_cast<const unsigned char*>(base);
+       *ptr != 0xFF; ++ptr) {
+    if (ptr[0] == kPhoneLtrMarkerHigh && ptr[1] == kPhoneLtrMarkerLow)
+      return true;
+  }
+  return false;
+}
+
+static bool stripPhoneLtrMarkers(const char* begin, const char* end,
+                                 std::string& stripped) {
+  const unsigned char* ptr =
+      reinterpret_cast<const unsigned char*>(begin);
+  const unsigned char* finish =
+      reinterpret_cast<const unsigned char*>(end);
+  const unsigned char* marker = nullptr;
+  for (; ptr + 1 < finish; ptr += 2) {
+    if (ptr[0] == kPhoneLtrMarkerHigh && ptr[1] == kPhoneLtrMarkerLow) {
+      marker = ptr;
+      break;
+    }
+  }
+  if (marker == nullptr) return false;
+
+  stripped.reserve(static_cast<size_t>(end - begin));
+  const char* copy = begin;
+  ptr = reinterpret_cast<const unsigned char*>(begin);
+  while (ptr + 1 < finish) {
+    if (ptr[0] == kPhoneLtrMarkerHigh && ptr[1] == kPhoneLtrMarkerLow) {
+      stripped.append(copy, reinterpret_cast<const char*>(ptr) - copy);
+      ptr += 2;
+      copy = reinterpret_cast<const char*>(ptr);
+    } else {
+      ptr += 2;
+    }
+  }
+  stripped.append(copy, end - copy);
+  return true;
+}
+
 namespace lb {
+
+bool g_dialogueForceLTR = false;
 
 void globalTextReplacementsInit() {
   auto parseRulesIter = config["gamedef"].find("textParseRules");
@@ -136,21 +184,37 @@ static void replaceTextFragment(const char* fragBegin, const char* fragEnd,
       }
     }
   }
+  std::string markerStripped;
+  if (stripPhoneLtrMarkers(fragBegin, fragEnd, markerStripped)) {
+    g_dialogueForceLTR = true;
+    result.forceLTR = true;
+    fragBegin = markerStripped.data();
+    fragEnd = fragBegin + markerStripped.size();
+  }
   result.appendFragment(fragBegin, fragEnd);
 }
 
 const char* processTextReplacements(const char* base, int fileId,
                                     int stringId) {
-  if (globalTextReplacements.empty()) return base;
+  g_dialogueForceLTR = false;
+  const bool baseHasPhoneLtrMarker = containsPhoneLtrMarker(base);
+  if (globalTextReplacements.empty() && !baseHasPhoneLtrMarker) return base;
   static std::vector<std::vector<ProcessedString_t>> processedTextReplacements;
   if (fileId >= (int)processedTextReplacements.size())
     processedTextReplacements.resize(fileId + 1);
   if (stringId >= (int)processedTextReplacements[fileId].size())
     processedTextReplacements[fileId].resize(stringId + 1);
   ProcessedString_t& result = processedTextReplacements[fileId][stringId];
-  if (!result.replaced.empty()) return result.replaced.data();
-  if (result.useOriginal) return base;
+  if (!result.replaced.empty()) {
+    g_dialogueForceLTR = result.forceLTR;
+    return result.replaced.data();
+  }
+  if (result.useOriginal) {
+    g_dialogueForceLTR = result.forceLTR;
+    return base;
+  }
   result.useOriginal = true;
+  result.forceLTR = baseHasPhoneLtrMarker;
   LazyAllocatingProcessedString processor(result, base);
   const char* ptr = base;
   const char* textFragmentBegin = nullptr;
@@ -207,8 +271,12 @@ const char* processTextReplacements(const char* base, int fileId,
     result.replaced.clear();
     result.useOriginal = true;
   }
-  if (result.useOriginal) return base;
+  if (result.useOriginal) {
+    g_dialogueForceLTR = result.forceLTR;
+    return base;
+  }
   result.replaced.push_back((char)0xFF);
+  g_dialogueForceLTR = result.forceLTR;
   return result.replaced.data();
 }
 

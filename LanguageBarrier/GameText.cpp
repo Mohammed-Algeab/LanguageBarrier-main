@@ -11,6 +11,7 @@
 #include "Script.h"
 #include "SigScan.h"
 #include "TextRendering.h"
+#include "TextReplace.h"
 #include <d3d9.h>
 #include <string_view>
 #include <string>
@@ -1691,13 +1692,18 @@ float dialogueLineShiftX(DialoguePage* page, int fontNumber, int glyphIndex,
         const bool keepNameLine =                                               \
             RTL_DIALOGUE_KEEP_NAME_LINE &&                                      \
             isSpeakerNameLine(page, fontNumber, i);                             \
+        // [phone-ltr] is removed from SC3 before layout and leaves this       \
+        // per-string flag. The call bubble uses the same dialogue renderer   \
+        // as normal dialogue, but must retain the engine's original LTR path. \
+        const bool applyRTL = UseRTLDialogue && !keepNameLine &&               \
+                              !g_dialogueForceLTR;                              \
         /* Keep glyph source, crop, metrics, destination box, color, and      \
          * reveal opacity on the same slot. The previous experiment borrowed  \
          * the source from renderIndex while drawing inside slot i, which      \
          * caused the irregular glyph sizes. */                              \
                 const int renderIndex = i;                                             \
         const int revealIndex =                                                   \
-            (UseRTLDialogue && !keepNameLine)                                   \
+            applyRTL                                                               \
                 ? dialogueGlyphIndexForReveal(page, fontNumber, i)              \
                 : i;                                                            \
                                                                                \
@@ -1705,7 +1711,7 @@ float dialogueLineShiftX(DialoguePage* page, int fontNumber, int glyphIndex,
          * uses only a whole-line translation to the configured right edge;\
          * it does not mirror glyph positions or reverse the source text. */     \
         const float lineShiftX =                                                \
-            (UseRTLDialogue && !keepNameLine)                                   \
+            applyRTL                                                               \
                 ? dialogueLineShiftX(page, fontNumber, i, xOffset)              \
                 : 0.0f;                                                         \
         float displayStartX =                                                   \
@@ -1735,7 +1741,7 @@ float dialogueLineShiftX(DialoguePage* page, int fontNumber, int glyphIndex,
         float fitY0 = displayStartY;                                          \
         float fitW = COORDS_MULTIPLIER * dispW;                               \
         float fitH = COORDS_MULTIPLIER * dispH;                               \
-        if (RTL_DIALOGUE_UNIFORM_SCALE && !keepNameLine && srcW > 0.0f &&      \
+        if (RTL_DIALOGUE_UNIFORM_SCALE && applyRTL && srcW > 0.0f &&            \
             srcH > 0.0f) {                                                    \
           /* Preserve the borrowed glyph's own aspect ratio instead of       */ \
           /* independently stretching W and H to fill slot i's box -- that  */ \
@@ -1752,10 +1758,10 @@ float dialogueLineShiftX(DialoguePage* page, int fontNumber, int glyphIndex,
                                                                                \
         /* Cosmetic fine-tuning knobs from patchdef.json, applied on top of  */ \
         /* the already-correct (non-overlapping) fit rectangle above.       */ \
-        const float scaleX = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_SCALE_X : 1.0f; \
-        const float scaleY = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_SCALE_Y : 1.0f; \
-        const float xOff   = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_X_OFFSET : 0.0f; \
-        const float yOff   = UseRTLDialogue && !keepNameLine ? RTL_GLYPH_Y_OFFSET : 0.0f; \
+        const float scaleX = applyRTL ? RTL_GLYPH_SCALE_X : 1.0f;                 \
+        const float scaleY = applyRTL ? RTL_GLYPH_SCALE_Y : 1.0f;                 \
+        const float xOff   = applyRTL ? RTL_GLYPH_X_OFFSET : 0.0f;                \
+        const float yOff   = applyRTL ? RTL_GLYPH_Y_OFFSET : 0.0f;                \
         const float extraW = fitW * (scaleX - 1.0f);                          \
         const float extraH = fitH * (scaleY - 1.0f);                         \
         fitX0 += xOff - extraW / 2.0f;                                        \
