@@ -5,6 +5,10 @@
     "rtlDialogueKeepNameLine": true,
     "rtlPhone": true,
     "rtlPhoneMultilineOnly": true,
-    "rtlPhoneRightX": 120
+    "rtlPhoneRightX": 120,
+    "rtlEmail": true,
+    "rtlEmailPhoneMaxLineLength": 320,
+    "rtlEmailPhoneRightX": 0,
+    "rtlEmailComputerRightX": 0
   }
 }

@@ -20,3 +20,11 @@
 ## الاستنتاج الأولي
 
 لا يصح افتراض أن كل استدعاءات `drawPhoneTextHook` تمثل جسم رسالة هاتف يمكن محاذاته إلى اليمين. يلزم إما تسجيل معاملات الاستدعاءات في نسخة تشخيصية ثم بناء allowlist للحالات الآمنة، أو جعل RTL للهاتف معطلاً افتراضيًا مع خيار انتقائي. يجب عدم تعديل مسار الحوار المكتمل.
+
+## تدقيق جديد: LTR للهاتف ومسار @Channel
+
+- `drawPhoneCallNameHook` مسار مستقل عن `drawPhoneTextHook`، لذلك اسم المتصل لا يحتاج أن يرث محاذاة جسم الرسالة، ويجب إبقاؤه LTR.
+- `sghdDrawInteractiveMailHook` هو مسار رسم البريد التفاعلي، والتعليق في المصدر يذكر أنه يُستخدم أيضًا لخيوط `@Channel`.
+- مسارا `sghdGetLinksFromSc3StringHook` و`sghdDrawLinkHighlightHook` يحسبان مواضع الروابط بصورة مستقلة؛ أي إزاحة RTL للرسم وحده ستكسر hitboxes/highlights ما لم تُطبّق المعادلة نفسها عليهما.
+- مسارا `sgpDrawMailTextHook` و`sgpDrawMailTextContentHook` منفصلان عن SGHD التفاعلي، ويستخدمان `startX/startY/lineLength` مع line count ثابتين، لذا لا يصح دمجهما تلقائيًا في أول إصلاح.
+- عبارات الحالة مثل `Sending mail`, `Mail sent`, و`Calling` تحتاج allowlist أو تمييزًا من معاملات الاستدعاء/النص الخام؛ لا يجوز افتراض أنها جسم رسالة متعدد الأسطر.

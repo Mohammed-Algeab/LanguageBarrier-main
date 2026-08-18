@@ -754,6 +754,13 @@ bool RTL_PHONE_MULTILINE_ONLY = true;
 // final render pixels. This preserves the legacy patch key name while making
 // it an offset rather than an absolute screen coordinate.
 float RTL_PHONE_RIGHT_X = 0.0f;
+// Interactive mail / @Channel RTL is independent from phone RTL. The game
+// passes both the small phone box and the wider computer box through the same
+// SGHD hooks, so the box is classified by the logical lineLength value.
+bool UseRTLEmail = false;
+int RTL_EMAIL_PHONE_MAX_LINE_LENGTH = 320;
+float RTL_EMAIL_PHONE_RIGHT_X = 0.0f;
+float RTL_EMAIL_COMPUTER_RIGHT_X = 0.0f;
 // Logical (pre-COORDS_MULTIPLIER) target right edge for RTL dialogue lines.
 // Zero leaves the engine's original horizontal layout unchanged.
 float RTL_DIALOGUE_RIGHT_X = 0.0f;
@@ -797,6 +804,13 @@ void gameTextInit() {
   RTL_PHONE_MULTILINE_ONLY =
       config["patch"].value("rtlPhoneMultilineOnly", true);
   RTL_PHONE_RIGHT_X = config["patch"].value("rtlPhoneRightX", 0.0f);
+  UseRTLEmail = config["patch"].value("rtlEmail", false);
+  RTL_EMAIL_PHONE_MAX_LINE_LENGTH =
+      config["patch"].value("rtlEmailPhoneMaxLineLength", 320);
+  RTL_EMAIL_PHONE_RIGHT_X =
+      config["patch"].value("rtlEmailPhoneRightX", 0.0f);
+  RTL_EMAIL_COMPUTER_RIGHT_X =
+      config["patch"].value("rtlEmailComputerRightX", 0.0f);
   RTL_DIALOGUE_RIGHT_X =
       config["patch"].value("rtlDialogueRightX", 0.0f);
   RTL_DIALOGUE_KEEP_NAME_LINE =
@@ -827,6 +841,11 @@ void gameTextInit() {
            << ", phoneEnabled=" << (UseRTLPhone ? 1 : 0)
            << ", phoneMultilineOnly=" << (RTL_PHONE_MULTILINE_ONLY ? 1 : 0)
            << ", phoneRightInset=" << RTL_PHONE_RIGHT_X
+           << ", emailEnabled=" << (UseRTLEmail ? 1 : 0)
+           << ", emailPhoneMaxLineLength="
+           << RTL_EMAIL_PHONE_MAX_LINE_LENGTH
+           << ", emailPhoneRightInset=" << RTL_EMAIL_PHONE_RIGHT_X
+           << ", emailComputerRightInset=" << RTL_EMAIL_COMPUTER_RIGHT_X
            << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
            << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0)
            << ", debugLog=" << (RTL_DIALOGUE_DEBUG_LOG ? 1 : 0)
@@ -3044,15 +3063,18 @@ void processSc3TokenList(int xOffset, int yOffset, int lineLength,
 }
 
 static bool rtlPhoneCallAllowsAlignment(int lineSkipCount,
-                                         int lineDisplayCount) {
+                                         int lineDisplayCount,
+                                         int renderedLineCount) {
   if (!UseRTLPhone)
     return false;
 
   // drawPhoneTextHook is shared by several phone UI elements. A one-line,
-  // non-scrolling call is normally a name, subject, label, or list row rather
-  // than the message body. Keep those calls in the original LTR layout unless
-  // the user explicitly opts into the broad legacy behaviour.
-  if (RTL_PHONE_MULTILINE_ONLY && lineSkipCount <= 0 && lineDisplayCount <= 1)
+  // non-scrolling call is normally a name, subject, label, status, or list row
+  // rather than the message body. Use the actual laid-out line count as well as
+  // the engine's scroll counters, so strings such as "Calling" and "Mail sent"
+  // remain in the original LTR placement.
+  if (RTL_PHONE_MULTILINE_ONLY && lineSkipCount <= 0 &&
+      lineDisplayCount <= 1 && renderedLineCount <= 1)
     return false;
   return true;
 }
@@ -3065,15 +3087,15 @@ static inline int rtlPhoneMaxInt(int a, int b) {
   return a > b ? a : b;
 }
 
-static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
-                                int lineLength, bool enabled) {
-  if (!enabled || str.length <= 0 || lineLength <= 0)
+static void rtlAlignTextLines(ProcessedSc3String_t& str, int xOffset,
+                              int lineLength, float multiplier,
+                              float rightInsetFinalPixels, bool enabled) {
+  if (!enabled || str.length <= 0 || lineLength <= 0 || multiplier <= 0.0f)
     return;
 
   // processSc3TokenList applies this same padding internally before wrapping
   // and laying out glyphs. Reconstruct the effective box here so the right edge
-  // is derived from the game's actual phone text rectangle, not from a guessed
-  // screen coordinate in patchdef.
+  // is derived from the game's actual rectangle, not from a guessed screen X.
   if (HAS_SGHD_PHONE) {
     xOffset += SGHD_PHONE_X_PADDING;
     lineLength -= 2 * SGHD_PHONE_X_PADDING;
@@ -3081,21 +3103,16 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
   if (lineLength <= 0)
     return;
 
-  // The game gives this hook the logical left edge and width of the phone
-  // text box. processSc3TokenList uses the same values (including the SGHD
-  // padding above), so derive the RTL anchor from that exact box instead of
-  // treating rtlPhoneRightX as an absolute screen X coordinate.
-  //
-  // rtlPhoneRightX is retained as an optional inward inset. With the requested
-  // legacy value 120, every line ends 120 final-render pixels before the
-  // computed right edge; it can be set to 0 for a flush right edge.
-  const float phoneLeftEdge = xOffset * COORDS_MULTIPLIER;
-  const float phoneRightEdge =
-      (xOffset + lineLength) * COORDS_MULTIPLIER;
+  const float textLeftEdge = xOffset * multiplier;
+  const float textRightEdge = (xOffset + lineLength) * multiplier;
+  // Configuration values are final-render pixels. Convert them to the current
+  // helper's scale so phone and link metrics use the same visual inset.
+  const float insetAtScale =
+      rightInsetFinalPixels * multiplier / COORDS_MULTIPLIER;
   const int requestedRight = static_cast<int>(
-      phoneRightEdge - RTL_PHONE_RIGHT_X + 0.5f);
-  const int boxLeft = static_cast<int>(phoneLeftEdge + 0.5f);
-  const int boxRight = static_cast<int>(phoneRightEdge + 0.5f);
+      textRightEdge - insetAtScale + 0.5f);
+  const int boxLeft = static_cast<int>(textLeftEdge + 0.5f);
+  const int boxRight = static_cast<int>(textRightEdge + 0.5f);
   const int targetRight =
       rtlPhoneMaxInt(boxLeft, rtlPhoneMinInt(requestedRight, boxRight));
   const int noLine = -0x7FFFFFFF;
@@ -3138,6 +3155,28 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
   }
 }
 
+static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
+                               int lineLength, bool enabled) {
+  rtlAlignTextLines(str, xOffset, lineLength, COORDS_MULTIPLIER,
+                    RTL_PHONE_RIGHT_X, enabled);
+}
+
+static bool rtlEmailUsesPhoneBox(int lineLength) {
+  return RTL_EMAIL_PHONE_MAX_LINE_LENGTH > 0 && lineLength > 0 &&
+         lineLength <= RTL_EMAIL_PHONE_MAX_LINE_LENGTH;
+}
+
+static void rtlAlignInteractiveMailLines(ProcessedSc3String_t& str, int xOffset,
+                                         int lineLength) {
+  if (!UseRTLEmail)
+    return;
+  const float rightInset = rtlEmailUsesPhoneBox(lineLength)
+                               ? RTL_EMAIL_PHONE_RIGHT_X
+                               : RTL_EMAIL_COMPUTER_RIGHT_X;
+  rtlAlignTextLines(str, xOffset, lineLength, COORDS_MULTIPLIER, rightInset,
+                    true);
+}
+
 int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                               int lineLength, char* sc3string,
                               int lineSkipCount, int lineDisplayCount,
@@ -3162,8 +3201,8 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, nullptr);
 
-  const bool alignThisPhoneCall =
-      rtlPhoneCallAllowsAlignment(lineSkipCount, lineDisplayCount);
+  const bool alignThisPhoneCall = rtlPhoneCallAllowsAlignment(
+      lineSkipCount, lineDisplayCount, str.lines);
   rtlAlignPhoneLines(str, xOffset, lineLength, alignThisPhoneCall);
 
   for (int i = 0; i < str.length; i++) {
@@ -3363,8 +3402,9 @@ int __cdecl sghdGetLinksFromSc3StringHook(int xOffset, int yOffset,
                       baseGlyphSize, &str, true, 1.0f, -1, NOT_A_LINK, 0,
                       baseGlyphSize, NULL);
   processSc3TokenList(xOffset, yOffset, lineLength, words, lineDisplayCount, 0,
-                      baseGlyphSize, &str, false, 1.0f, str.linkCount - 1,
+                      baseGlyphSize, &str, false, COORDS_MULTIPLIER, str.linkCount - 1,
                       str.curLinkNumber, str.curColor, baseGlyphSize, NULL);
+  rtlAlignInteractiveMailLines(str, xOffset, lineLength);
 
   int j = 0;
   ;
@@ -3404,6 +3444,7 @@ int __cdecl sghdDrawInteractiveMailHook(
                       color, baseGlyphSize, &str, false, COORDS_MULTIPLIER,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, NULL);
+  rtlAlignInteractiveMailLines(str, xOffset, lineLength);
 
   for (int i = 0; i < str.length; i++) {
     int curColor = str.color[i];
@@ -3446,6 +3487,7 @@ int __cdecl sghdDrawLinkHighlightHook(int xOffset, int yOffset, int lineLength,
                       color, baseGlyphSize, &str, false, COORDS_MULTIPLIER,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, NULL);
+  rtlAlignInteractiveMailLines(str, xOffset, lineLength);
 
   if (selectedLink == NOT_A_LINK) return str.lines;
 
