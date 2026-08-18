@@ -14,6 +14,7 @@
 #include <d3d9.h>
 #include <string_view>
 #include <string>
+#include <iomanip>
 #include "Hooking.h"
 #include "HookTypes.h"
 #include <imgui.h>
@@ -785,6 +786,53 @@ float RTL_GLYPH_Y_OFFSET = 0.0f;
 // (pre-RTL) behavior exactly when i == renderIndex, i.e. in LTR mode.
 bool RTL_DIALOGUE_UNIFORM_SCALE = false;
 
+// Diagnostic-only tracing for unresolved SGLBP text paths. It is disabled by
+// default and does not alter coordinates, glyph order, or hook behavior.
+bool TEXT_LAYOUT_DIAGNOSTIC_LOG = false;
+int TEXT_LAYOUT_DIAGNOSTIC_MAX_EVENTS = 80;
+static int textLayoutDiagnosticTotalEvents = 0;
+static int textLayoutDiagnosticChatEvents = 0;
+static int textLayoutDiagnosticBacklogEvents = 0;
+static int textLayoutDiagnosticPhoneEvents = 0;
+static int textLayoutDiagnosticCallNameEvents = 0;
+static int textLayoutDiagnosticSingleLineEvents = 0;
+static int textLayoutDiagnosticWidthEvents = 0;
+static int textLayoutDiagnosticLineCountEvents = 0;
+static int textLayoutDiagnosticMailEvents = 0;
+
+static std::string textLayoutDiagnosticSc3Hex(const char* data,
+                                              int maxBytes = 96) {
+  if (data == nullptr) return "<null>";
+
+  std::stringstream out;
+  out << std::hex << std::uppercase;
+  for (int i = 0; i < maxBytes; ++i) {
+    const uint8_t value = static_cast<uint8_t>(data[i]);
+    if (value == 0) break;
+    if (i != 0) out << ' ';
+    out << std::setw(2) << std::setfill('0') << static_cast<int>(value);
+    if (value == 0xFF && i + 1 < maxBytes &&
+        static_cast<uint8_t>(data[i + 1]) == 0xFF) {
+      out << ' ' << std::setw(2) << std::setfill('0') << 0xFF;
+      break;
+    }
+  }
+  return out.str();
+}
+
+static void textLayoutDiagnosticLog(const char* category, int& categoryCount,
+                                    const std::string& details) {
+  if (!TEXT_LAYOUT_DIAGNOSTIC_LOG ||
+      TEXT_LAYOUT_DIAGNOSTIC_MAX_EVENTS <= 0 ||
+      categoryCount >= TEXT_LAYOUT_DIAGNOSTIC_MAX_EVENTS ||
+      textLayoutDiagnosticTotalEvents >= TEXT_LAYOUT_DIAGNOSTIC_MAX_EVENTS * 8)
+    return;
+
+  ++categoryCount;
+  ++textLayoutDiagnosticTotalEvents;
+  LanguageBarrierLog(std::string("TEXT_DIAG[") + category + "] " + details);
+}
+
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
     if (config["gamedef"]["dialoguePageVersion"].get<std::string>() == "rn") {
@@ -834,6 +882,19 @@ void gameTextInit() {
   RTL_DIALOGUE_UNIFORM_SCALE =
       config["patch"].value("rtlDialogueGlyphFitMode", std::string("stretch")) ==
       "uniformScale";
+  TEXT_LAYOUT_DIAGNOSTIC_LOG =
+      config["patch"].value("textLayoutDiagnosticLog", false);
+  TEXT_LAYOUT_DIAGNOSTIC_MAX_EVENTS =
+      config["patch"].value("textLayoutDiagnosticMaxEvents", 80);
+  textLayoutDiagnosticTotalEvents = 0;
+  textLayoutDiagnosticChatEvents = 0;
+  textLayoutDiagnosticBacklogEvents = 0;
+  textLayoutDiagnosticPhoneEvents = 0;
+  textLayoutDiagnosticCallNameEvents = 0;
+  textLayoutDiagnosticSingleLineEvents = 0;
+  textLayoutDiagnosticWidthEvents = 0;
+  textLayoutDiagnosticLineCountEvents = 0;
+  textLayoutDiagnosticMailEvents = 0;
   {
     std::stringstream rtlLog;
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
@@ -850,6 +911,10 @@ void gameTextInit() {
            << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0)
            << ", debugLog=" << (RTL_DIALOGUE_DEBUG_LOG ? 1 : 0)
            << ", debugMaxLines=" << RTL_DIALOGUE_DEBUG_MAX_LINES
+           << ", textLayoutDiagnosticLog="
+           << (TEXT_LAYOUT_DIAGNOSTIC_LOG ? 1 : 0)
+           << ", textLayoutDiagnosticMaxEvents="
+           << TEXT_LAYOUT_DIAGNOSTIC_MAX_EVENTS
            << ", glyphScaleX=" << RTL_GLYPH_SCALE_X
            << ", glyphScaleY=" << RTL_GLYPH_SCALE_Y
            << ", glyphXOffset=" << RTL_GLYPH_X_OFFSET
@@ -2034,6 +2099,26 @@ void __cdecl DrawBacklogContentHookRNE(int textureId, int maskTextureId,
                                        int startX, int startY,
                                        unsigned int maskY, int maskHeight,
                                        int opacity, int index) {
+  {
+    static std::string lastKey;
+    std::stringstream diag;
+    diag << "hook=RNE texture=" << textureId << ", mask=" << maskTextureId
+         << ", start=" << startX << "," << startY << ", maskY=" << maskY
+         << ", maskH=" << maskHeight << ", opacity=" << opacity
+         << ", index=" << index;
+    if (BacklogLineBufUse != nullptr) {
+      diag << ", lineBufUse=" << *BacklogLineBufUse;
+    }
+    if (BacklogDispPos != nullptr) {
+      diag << ", dispPos=" << *BacklogDispPos;
+    }
+    const std::string key = diag.str();
+    if (key != lastKey) {
+      lastKey = key;
+      textLayoutDiagnosticLog("backlog", textLayoutDiagnosticBacklogEvents,
+                              key);
+    }
+  }
   unsigned int v8;         // edi
   unsigned int v9;         // ecx
   unsigned int v10;        // esi
@@ -2278,6 +2363,26 @@ void __cdecl DrawBacklogContentHookRND(int textureId, int maskTextureId,
                                        int startX, int startY,
                                        unsigned int maskY, int maskHeight,
                                        int opacity, int index) {
+  {
+    static std::string lastKey;
+    std::stringstream diag;
+    diag << "hook=RND texture=" << textureId << ", mask=" << maskTextureId
+         << ", start=" << startX << "," << startY << ", maskY=" << maskY
+         << ", maskH=" << maskHeight << ", opacity=" << opacity
+         << ", index=" << index;
+    if (BacklogLineBufUse != nullptr) {
+      diag << ", lineBufUse=" << *BacklogLineBufUse;
+    }
+    if (BacklogDispPos != nullptr) {
+      diag << ", dispPos=" << *BacklogDispPos;
+    }
+    const std::string key = diag.str();
+    if (key != lastKey) {
+      lastKey = key;
+      textLayoutDiagnosticLog("backlog", textLayoutDiagnosticBacklogEvents,
+                              key);
+    }
+  }
   bool newline = true;
   float xPosition, yPosition;
   // if (GetAsyncKeyState(VK_RBUTTON)) {
@@ -2589,6 +2694,16 @@ int __cdecl drawChatMessageHook(int a2, float a3, float a4, float a5, char* sc3,
     processSc3TokenList(a3, a4, lineLength, words, a5, color, glyphSize, &str,
                         false, COORDS_MULTIPLIER, 0, 0, color, glyphSize,
                         &mData);
+
+    {
+      std::stringstream diag;
+      diag << "hook=chat texture=" << a2 << ", x=" << a3 << ", y=" << a4
+           << ", box=" << a5 << ", glyph=" << a9 << ", opacity=" << opacity
+           << ", renderedLines=" << str.lines << ", glyphs=" << str.length
+           << ", sc3=" << textLayoutDiagnosticSc3Hex(sc3);
+      textLayoutDiagnosticLog("chat", textLayoutDiagnosticChatEvents,
+                              diag.str());
+    }
 
     TextRendering::Get().replaceFontSurface(glyphSize);
 
@@ -3224,6 +3339,18 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
   const int visiblePhoneLineCount = rtlPhoneVisibleLineCount(str);
   const bool alignThisPhoneCall =
       rtlPhoneCallAllowsAlignment(visiblePhoneLineCount);
+  {
+    std::stringstream diag;
+    diag << "hook=phone x=" << xOffset << ", y=" << yOffset
+         << ", lineLength=" << lineLength << ", skip=" << lineSkipCount
+         << ", display=" << lineDisplayCount << ", glyph=" << baseGlyphSize
+         << ", renderedLines=" << str.lines
+         << ", visibleLines=" << visiblePhoneLineCount
+         << ", rtlAligned=" << (alignThisPhoneCall ? 1 : 0)
+         << ", sc3=" << textLayoutDiagnosticSc3Hex(sc3string);
+    textLayoutDiagnosticLog("phone", textLayoutDiagnosticPhoneEvents,
+                            diag.str());
+  }
   rtlAlignPhoneLines(str, xOffset, lineLength, alignThisPhoneCall);
 
   for (int i = 0; i < str.length; i++) {
@@ -3352,6 +3479,23 @@ signed int drawSingleTextLineHook(int textureId, int startX, signed int startY,
                                   unsigned int a4, char* string,
                                   signed int maxLength, int color,
                                   int glyphSize, signed int opacity) {
+  {
+    uintptr_t diagnosticRetaddr = 0;
+    __asm {
+      push eax
+      mov eax, [ebp + 4]
+      mov diagnosticRetaddr, eax
+      pop eax
+    }
+    std::stringstream diag;
+    diag << "hook=singleLine ret=0x" << std::hex << diagnosticRetaddr
+         << std::dec << ", texture=" << textureId << ", start=" << startX
+         << "," << startY << ", maxLength=" << maxLength
+         << ", glyph=" << glyphSize << ", sc3="
+         << textLayoutDiagnosticSc3Hex(string);
+    textLayoutDiagnosticLog("singleLine", textLayoutDiagnosticSingleLineEvents,
+                            diag.str());
+  }
   // yolo
   uintptr_t retaddr;
   __asm {
@@ -3374,6 +3518,14 @@ int __cdecl getSc3StringDisplayWidthHook(char* sc3string,
                                          unsigned int maxCharacters,
                                          int baseGlyphSize) {
   if (!maxCharacters) maxCharacters = DEFAULT_MAX_CHARACTERS;
+  {
+    std::stringstream diag;
+    diag << "hook=displayWidth maxChars=" << maxCharacters
+         << ", glyph=" << baseGlyphSize << ", sc3="
+         << textLayoutDiagnosticSc3Hex(sc3string);
+    textLayoutDiagnosticLog("width", textLayoutDiagnosticWidthEvents,
+                            diag.str());
+  }
   ScriptThreadState sc3;
   int sc3evalResult;
   int result = 0;
@@ -3467,6 +3619,17 @@ int __cdecl sghdDrawInteractiveMailHook(
                       baseGlyphSize, NULL);
   rtlAlignInteractiveMailLines(str, xOffset, lineLength);
 
+  {
+    std::stringstream diag;
+    diag << "hook=interactiveMail x=" << xOffset << ", y=" << yOffset
+         << ", lineLength=" << lineLength << ", skip=" << lineSkipCount
+         << ", display=" << lineDisplayCount << ", glyph=" << baseGlyphSize
+         << ", renderedLines=" << str.lines << ", links=" << str.linkCount
+         << ", sc3=" << textLayoutDiagnosticSc3Hex(sc3string);
+    textLayoutDiagnosticLog("mail", textLayoutDiagnosticMailEvents,
+                            diag.str());
+  }
+
   for (int i = 0; i < str.length; i++) {
     int curColor = str.color[i];
     if (str.linkNumber[i] != NOT_A_LINK) {
@@ -3529,6 +3692,13 @@ int __cdecl getSc3StringLineCountHook(int lineLength, char* sc3string,
                                       unsigned int baseGlyphSize) {
   ProcessedSc3String_t str;
   if (!lineLength) lineLength = DEFAULT_LINE_LENGTH;
+  {
+    std::stringstream diag;
+    diag << "hook=lineCount lineLength=" << lineLength << ", glyph="
+         << baseGlyphSize << ", sc3=" << textLayoutDiagnosticSc3Hex(sc3string);
+    textLayoutDiagnosticLog("lineCount", textLayoutDiagnosticLineCountEvents,
+                            diag.str());
+  }
 
   std::list<StringWord_t> words;
   semiTokeniseSc3String(sc3string, words, baseGlyphSize, lineLength);
@@ -3925,6 +4095,16 @@ void drawPhoneCallNameHook(int textureId, int maskId, int a3, int a4, int a5,
                            unsigned int a11, signed int opacity) {
   // Caller-name/status rendering is deliberately kept at the original
   // coordinates. It must not inherit the RTL alignment used for message rows.
+  {
+    std::stringstream diag;
+    diag << "hook=callName texture=" << textureId << ", mask=" << maskId
+         << ", start=" << a3 << "," << a4 << ", maskStartY=" << a5
+         << ", maskHeight=" << a6 << ", glyph=" << a9
+         << ", opacity=" << opacity << ", sc3="
+         << textLayoutDiagnosticSc3Hex(a8);
+    textLayoutDiagnosticLog("callName", textLayoutDiagnosticCallNameEvents,
+                            diag.str());
+  }
   ProcessedSc3String_t str;
 
   int dummy1;
@@ -4114,6 +4294,15 @@ void __cdecl sgpDrawMailTextHook(int startX, int startY, char* sc3String,
   processSc3TokenList(startX, startY, lineLength, words, 1, 0xFFFFFF, 0x18,
                       &strsc3, false, COORDS_MULTIPLIER, 0, 0, 0xFFFFFF, 0x12,
                       nullptr);
+  {
+    std::stringstream diag;
+    diag << "hook=sgpMailText x=" << startX << ", y=" << startY
+         << ", lineLength=" << lineLength << ", renderedLines="
+         << strsc3.lines << ", glyphs=" << strsc3.length << ", sc3="
+         << textLayoutDiagnosticSc3Hex(sc3String);
+    textLayoutDiagnosticLog("sgpMail", textLayoutDiagnosticMailEvents,
+                            diag.str());
+  }
   for (int i = 0; i < strsc3.length; i++) {
     sg0DrawGlyph3Hook(0x4F, 168, strsc3.textureStartX[i],
                       strsc3.textureStartY[i], strsc3.textureWidth[i],
@@ -4174,6 +4363,15 @@ void __cdecl sgpDrawMailTextContentHook(int startX, int startY, char* sc3String,
   processSc3TokenList(startX, startY, lineLength, words, 40, 0xFFFFFF, 0x18,
                       &strsc3, false, COORDS_MULTIPLIER, 0, 0, 0xFFFFFF, 0x18,
                       nullptr);
+  {
+    std::stringstream diag;
+    diag << "hook=sgpMailTextContent x=" << startX << ", y=" << startY
+         << ", lineLength=" << lineLength << ", a6=" << a6 << ", a7="
+         << a7 << ", renderedLines=" << strsc3.lines << ", glyphs="
+         << strsc3.length << ", sc3=" << textLayoutDiagnosticSc3Hex(sc3String);
+    textLayoutDiagnosticLog("sgpMailContent", textLayoutDiagnosticMailEvents,
+                            diag.str());
+  }
   for (int i = 0; i < strsc3.length; i++) {
     sg0DrawGlyph3Hook(0x4F, 168, strsc3.textureStartX[i],
                       strsc3.textureStartY[i], strsc3.textureWidth[i],
