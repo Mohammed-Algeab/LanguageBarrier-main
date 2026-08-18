@@ -743,8 +743,11 @@ bool UseNewTextSystem = false;
 bool UseRTLDialogue = false;
 // Phone RTL is independent from dialogue RTL. The phone renderer already
 // receives the script's pre-reversed SC3 sequence; this option only aligns
-// each laid-out line to a logical right edge.
+// each laid-out line to the right edge of the engine-provided phone text box.
 bool UseRTLPhone = false;
+// Inward padding from the phone text box's computed right edge, measured in
+// final render pixels. This preserves the legacy patch key name while making
+// it an offset rather than an absolute screen coordinate.
 float RTL_PHONE_RIGHT_X = 0.0f;
 // Logical (pre-COORDS_MULTIPLIER) target right edge for RTL dialogue lines.
 // Zero leaves the engine's original horizontal layout unchanged.
@@ -815,7 +818,7 @@ void gameTextInit() {
     rtlLog << "RTL dialogue config: enabled=" << (UseRTLDialogue ? 1 : 0)
            << ", rightX=" << RTL_DIALOGUE_RIGHT_X
            << ", phoneEnabled=" << (UseRTLPhone ? 1 : 0)
-           << ", phoneRightX=" << RTL_PHONE_RIGHT_X
+           << ", phoneRightInset=" << RTL_PHONE_RIGHT_X
            << ", keepName=" << (RTL_DIALOGUE_KEEP_NAME_LINE ? 1 : 0)
            << ", reverseText=" << (RTL_DIALOGUE_REVERSE_TEXT ? 1 : 0)
            << ", debugLog=" << (RTL_DIALOGUE_DEBUG_LOG ? 1 : 0)
@@ -3032,12 +3035,34 @@ void processSc3TokenList(int xOffset, int yOffset, int lineLength,
   result->usedLineLength = curLineLength ? curLineLength : prevLineLength;
 }
 
-static void rtlAlignPhoneLines(ProcessedSc3String_t& str) {
-  if (!UseRTLPhone || RTL_PHONE_RIGHT_X <= 0.0f || str.length <= 0)
+static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
+                                int lineLength) {
+  if (!UseRTLPhone || str.length <= 0 || lineLength <= 0)
     return;
 
-  const int targetRight =
-      static_cast<int>(RTL_PHONE_RIGHT_X * COORDS_MULTIPLIER + 0.5f);
+  // processSc3TokenList applies this same padding internally before wrapping
+  // and laying out glyphs. Reconstruct the effective box here so the right edge
+  // is derived from the game's actual phone text rectangle, not from a guessed
+  // screen coordinate in patchdef.
+  if (HAS_SGHD_PHONE) {
+    xOffset += SGHD_PHONE_X_PADDING;
+    lineLength -= 2 * SGHD_PHONE_X_PADDING;
+  }
+  if (lineLength <= 0)
+    return;
+
+  // The game gives this hook the logical left edge and width of the phone
+  // text box. processSc3TokenList uses the same values (including the SGHD
+  // padding above), so derive the RTL anchor from that exact box instead of
+  // treating rtlPhoneRightX as an absolute screen X coordinate.
+  //
+  // rtlPhoneRightX is retained as an optional inward inset. With the requested
+  // legacy value 120, every line ends 120 final-render pixels before the
+  // computed right edge; it can be set to 0 for a flush right edge.
+  const float phoneRightEdge =
+      (xOffset + lineLength) * COORDS_MULTIPLIER;
+  const int targetRight = static_cast<int>(
+      phoneRightEdge - RTL_PHONE_RIGHT_X + 0.5f);
   const int noLine = -0x7FFFFFFF;
 
   for (int i = 0; i < str.length; ++i) {
@@ -3094,7 +3119,7 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
                       str.linkCount - 1, str.curLinkNumber, str.curColor,
                       baseGlyphSize, nullptr);
 
-  rtlAlignPhoneLines(str);
+  rtlAlignPhoneLines(str, xOffset, lineLength);
 
   for (int i = 0; i < str.length; i++) {
     gameExeDrawGlyph(textureId, str.textureStartX[i], str.textureStartY[i],
