@@ -3057,6 +3057,14 @@ static bool rtlPhoneCallAllowsAlignment(int lineSkipCount,
   return true;
 }
 
+static inline int rtlPhoneMinInt(int a, int b) {
+  return a < b ? a : b;
+}
+
+static inline int rtlPhoneMaxInt(int a, int b) {
+  return a > b ? a : b;
+}
+
 static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
                                 int lineLength, bool enabled) {
   if (!enabled || str.length <= 0 || lineLength <= 0)
@@ -3088,7 +3096,8 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
       phoneRightEdge - RTL_PHONE_RIGHT_X + 0.5f);
   const int boxLeft = static_cast<int>(phoneLeftEdge + 0.5f);
   const int boxRight = static_cast<int>(phoneRightEdge + 0.5f);
-  const int targetRight = std::max(boxLeft, std::min(requestedRight, boxRight));
+  const int targetRight =
+      rtlPhoneMaxInt(boxLeft, rtlPhoneMinInt(requestedRight, boxRight));
   const int noLine = -0x7FFFFFFF;
 
   for (int i = 0; i < str.length; ++i) {
@@ -3108,8 +3117,8 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
     for (int j = 0; j < str.length; ++j) {
       if (str.displayStartY[j] != lineY)
         continue;
-      lineLeft = std::min(lineLeft, str.displayStartX[j]);
-      lineRight = std::max(lineRight, str.displayEndX[j]);
+      lineLeft = rtlPhoneMinInt(lineLeft, str.displayStartX[j]);
+      lineRight = rtlPhoneMaxInt(lineRight, str.displayEndX[j]);
     }
     if (lineRight == noLine || lineLeft == 0x7FFFFFFF)
       continue;
@@ -3117,8 +3126,9 @@ static void rtlAlignPhoneLines(ProcessedSc3String_t& str, int xOffset,
     const int requestedShift = targetRight - lineRight;
     const int minimumShift = boxLeft - lineLeft;
     const int maximumShift = boxRight - lineRight;
-    const int lineShiftX = std::max(minimumShift,
-                                    std::min(requestedShift, maximumShift));
+    const int lineShiftX =
+        rtlPhoneMaxInt(minimumShift,
+                       rtlPhoneMinInt(requestedShift, maximumShift));
     for (int j = 0; j < str.length; ++j) {
       if (str.displayStartY[j] != lineY)
         continue;
