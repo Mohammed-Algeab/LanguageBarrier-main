@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "notes": "Example mapping for the tested STEINS;GATE/SGHD bitmap font. Copy to harakat.json only after verifying these IDs in your own font.",
+  "marks": {
+    "fatha": {
+      "glyphIds": [814],
+      "glyphRanges": [],
+      "unicode": [1614]
+    },
+    "damma": {
+      "glyphIds": [815],
+      "glyphRanges": [],
+      "unicode": [1615]
+    },
+    "kasra": {
+      "glyphIds": [816],
+      "glyphRanges": [],
+      "unicode": [1616]
+    },
+    "sukun": {
+      "glyphIds": [817],
+      "glyphRanges": [],
+      "unicode": [1618]
+    },
+    "shadda": {
+      "glyphIds": [818],
+      "glyphRanges": [],
+      "unicode": [1617]
+    },
+    "fathatan": {
+      "glyphIds": [811],
+      "glyphRanges": [],
+      "unicode": [1611]
+    },
+    "dammatan": {
+      "glyphIds": [812],
+      "glyphRanges": [],
+      "unicode": [1612]
+    },
+    "kasratan": {
+      "glyphIds": [813],
+      "glyphRanges": [],
+      "unicode": [1613]
+    }
+  }
+}

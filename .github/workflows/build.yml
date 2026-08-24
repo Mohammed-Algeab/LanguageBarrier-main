@@ -1,0 +1,191 @@
+name: Build LanguageBarrier Arabic dialogue
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.configuration }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration:
+          - dinput8-Release
+          # Uncomment this entry if the target patch specifically loads cryptbase.dll.
+          # - cryptbase-Release
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # windows-2022 provides Visual Studio and vswhere. The solution platform is x86;
+      # its project mapping remains Win32. Release uses v142,
+      # static CRT, and a 6.1 subsystem target to maximize practical Windows 7
+      # compatibility. This is not a guarantee: all bundled DLLs and runtime
+      # dependencies still need to be checked on the target machine.
+      - name: Locate and prepare Visual Studio v142 tools
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found on the hosted runner" }
+
+          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if ($null -eq $installPath) { throw "Visual Studio C++ tools were not found" }
+          $installPath = $installPath.ToString().Trim()
+
+          $toolsetRoot = Join-Path $installPath "VC\Tools\MSVC"
+          $v142Cl = Get-ChildItem -Path $toolsetRoot -Filter cl.exe -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\14\.2[0-9.]*\\bin\\Host[^\\]+\\x86\\cl\.exe$" } |
+            Select-Object -First 1
+          if ($null -eq $v142Cl) {
+            $installer = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vs_installer.exe"
+            if (-not (Test-Path $installer)) { throw "Visual Studio Installer was not found; v142 is required" }
+            Write-Host "v142 was not present; installing Microsoft.VisualStudio.Component.VC.v142.x86.x64"
+            & $installer modify --installPath $installPath --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 --quiet --wait --norestart --nocache
+            if ($LASTEXITCODE -ne 0) { throw "Installing the v142 toolset failed with exit code $LASTEXITCODE" }
+            $v142Cl = Get-ChildItem -Path $toolsetRoot -Filter cl.exe -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match "\\14\.2[0-9.]*\\bin\\Host[^\\]+\\x86\\cl\.exe$" } |
+              Select-Object -First 1
+          }
+          if ($null -eq $v142Cl) { throw "The v142 x86 toolset is unavailable after installation" }
+
+          $msbuild = Join-Path $installPath "MSBuild\Current\Bin\MSBuild.exe"
+          $vsDevCmd = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
+          if (-not (Test-Path $msbuild)) { throw "MSBuild.exe was not found at $msbuild" }
+          if (-not (Test-Path $vsDevCmd)) { throw "VsDevCmd.bat was not found at $vsDevCmd" }
+
+          "MSBUILD_PATH=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VSDEVCMD_PATH=$vsDevCmd" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VSINSTALL_PATH=$installPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_VISUAL_STUDIO_PATH=$installPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_PLATFORM_TOOLSET=v142" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "V142_CL_PATH=$($v142Cl.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using Visual Studio at $installPath"
+          Write-Host "Using MSBuild at $msbuild"
+          Write-Host "Using v142 compiler at $($v142Cl.FullName)"
+
+
+      - name: Validate vendored build inputs
+        shell: pwsh
+        run: |
+          $required = @(
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\xy-vsfilter\VSFilter.lib"),
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\lib\xy-vsfilter\VSFilter.dll"),
+            (Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\contrib\include")
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Required build input is missing: $path" }
+          }
+
+      - name: Install vcpkg and manifest dependencies
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
+        run: |
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:VCPKG_ROOT"
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+            if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+          }
+          $env:VCPKG_PLATFORM_TOOLSET = "v142"
+          $env:VCPKG_VISUAL_STUDIO_PATH = $env:VSINSTALL_PATH
+          & "$env:VCPKG_ROOT\vcpkg.exe" integrate install
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg MSBuild integration failed" }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x86-windows-static-v142 --overlay-triplets "$env:GITHUB_WORKSPACE\triplets" --x-manifest-root "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+
+      - name: Build x86 DLL
+        shell: cmd
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
+        run: |
+          call "%VSDEVCMD_PATH%" -arch=x86 -host_arch=x86
+          if errorlevel 1 exit /b %errorlevel%
+          "%MSBUILD_PATH%" "%GITHUB_WORKSPACE%\LanguageBarrier.sln" /m /p:Configuration="${{ matrix.configuration }}" /p:Platform=x86 /p:PlatformToolset=v142 /p:VcpkgRoot="%VCPKG_ROOT%" /p:VcpkgUserTriplet=x86-windows-static-v142 /p:VcpkgUseStatic=false /p:VcpkgEnabled=true /p:VcpkgAdditionalInstallOptions="--overlay-triplets=%VCPKG_OVERLAY_TRIPLETS%" /p:RestorePackagesConfig=false
+          if errorlevel 1 exit /b %errorlevel%
+
+      - name: Collect build output
+        shell: pwsh
+        run: |
+          $artifact = Join-Path $env:GITHUB_WORKSPACE "artifact\${{ matrix.configuration }}"
+          New-Item -ItemType Directory -Force -Path $artifact | Out-Null
+
+          $targetName = if ("${{ matrix.configuration }}" -like "cryptbase-*") { "cryptbase.dll" } else { "dinput8.dll" }
+          $dll = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -File -Filter $targetName |
+            Where-Object { $_.FullName -notmatch "\\vcpkg\\" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if ($null -eq $dll) { throw "Could not find $targetName after the build" }
+          # Preserve the complete Visual Studio output directory. The project
+          # pre-build step creates languagebarrier\ and copies VSFilter.dll.
+          Copy-Item (Join-Path $dll.Directory.FullName "*") $artifact -Recurse -Force
+
+          $license = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\LICENSE"
+          $thirdParty = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\THIRDPARTY.LB.txt"
+          if (Test-Path $license) { Copy-Item $license (Join-Path $artifact "LICENSE") -Force }
+          if (Test-Path $thirdParty) { Copy-Item $thirdParty (Join-Path $artifact "THIRDPARTY.LB.txt") -Force }
+
+          @"
+          Build configuration: ${{ matrix.configuration }}
+          Solution platform: x86 (maps to project platform Win32)
+          Renderer policy: source glyph, destination box, metrics, color, and opacity share the same slot
+          RTL option: patch.rtlDialogue=true; patch.rtlDialogueReverseText=false
+          Toolchain: Visual Studio v142 on windows-2022; vcpkg triplet x86-windows-static-v142; static CRT; Windows 7 subsystem target 6.1
+          "@ | Set-Content (Join-Path $artifact "BUILD_INFO.txt")
+
+          Get-ChildItem -Path $artifact -File | Format-Table Name, Length
+
+      - name: Inspect DLL imports and PE target
+        shell: pwsh
+        run: |
+          $artifact = Join-Path $env:GITHUB_WORKSPACE "artifact\${{ matrix.configuration }}"
+          $targetName = if ("${{ matrix.configuration }}" -like "cryptbase-*") { "cryptbase.dll" } else { "dinput8.dll" }
+          $dll = Join-Path $artifact $targetName
+          if (-not (Test-Path $dll)) { throw "Built DLL is missing from artifact: $dll" }
+
+          $dumpbin = Get-ChildItem -Path (Join-Path $env:VSINSTALL_PATH "VC\Tools\MSVC") -Filter dumpbin.exe -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\bin\\Host[^\\]+\\x86\\dumpbin\.exe$" } |
+            Select-Object -First 1
+          if ($null -eq $dumpbin) { throw "x86 dumpbin.exe was not found for PE inspection" }
+
+          & $dumpbin.FullName /DEPENDENTS $dll | Set-Content (Join-Path $artifact "DLL_DEPENDENCIES.txt")
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin /DEPENDENTS failed with exit code $LASTEXITCODE" }
+
+          $importsPath = Join-Path $artifact "DLL_IMPORTS.txt"
+          & $dumpbin.FullName /IMPORTS $dll | Set-Content $importsPath
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin /IMPORTS failed with exit code $LASTEXITCODE" }
+          $importsText = Get-Content $importsPath -Raw
+          if ($importsText -match '(?im)\bCreateFile2\b') {
+            throw "Windows 7 import check failed: the built DLL imports KERNEL32!CreateFile2, which is unavailable on Windows 7"
+          }
+
+          & $dumpbin.FullName /HEADERS $dll |
+            Select-String -Pattern "machine|subsystem|version|DLL characteristics" |
+            Set-Content (Join-Path $artifact "PE_HEADERS.txt")
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin /HEADERS failed with exit code $LASTEXITCODE" }
+
+          @"
+          Release compatibility intent: v142 toolset, /MT static CRT, x86-windows-static-v142 vcpkg triplet, PE subsystem 6.01.
+          Windows 7 compatibility is a target for this build configuration, not a runtime guarantee.
+          DLL_IMPORTS.txt is checked for KERNEL32!CreateFile2 because CreateFile2 requires Windows 8 or later.
+          Inspect DLL_DEPENDENCIES.txt and test every bundled DLL on the target OS.
+          "@ | Set-Content (Join-Path $artifact "COMPATIBILITY_CHECK.txt")
+
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LanguageBarrier-${{ matrix.configuration }}
+          path: artifact/${{ matrix.configuration }}
+          if-no-files-found: error
+          retention-days: 14
