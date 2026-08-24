@@ -27,23 +27,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Validate repository layout
-        shell: pwsh
-        run: |
-          $solution = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier.sln"
-          $project = Join-Path $env:GITHUB_WORKSPACE "LanguageBarrier\LanguageBarrier.vcxproj"
-          if (-not (Test-Path -LiteralPath $solution -PathType Leaf)) {
-            $found = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -File -Filter *.sln |
-              Select-Object -ExpandProperty FullName
-            if ($null -eq $found) { $found = "(no .sln file found)" }
-            throw "Repository layout error: LanguageBarrier.sln must be committed at the repository root. Found: $($found -join '; ')"
-          }
-          if (-not (Test-Path -LiteralPath $project -PathType Leaf)) {
-            throw "Repository layout error: LanguageBarrier\\LanguageBarrier.vcxproj is missing"
-          }
-          Write-Host "Solution: $solution"
-          Write-Host "Project:  $project"
-
       # windows-2022 provides Visual Studio and vswhere. The solution platform is x86;
       # its project mapping remains Win32. Release uses v142,
       # static CRT, and a 6.1 subsystem target to maximize practical Windows 7

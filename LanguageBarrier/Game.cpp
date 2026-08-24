@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <filesystem>
 #include "BinkMod.h"
 #include "CriManaMod.h"
 #include "Config.h"
@@ -352,65 +353,14 @@ static uint32_t* PadCustom = NULL;
 static BOOL *PhoneMenuOptionSelectedSG = NULL;
 static int *PhoneMenuUnk = NULL;
 
-// Use Win32 file/path helpers here instead of MSVC <filesystem>. The MSVC
-// filesystem runtime can pull in KERNEL32!CreateFile2, which is unavailable
-// on Windows 7, even when the project has no direct CreateFile2 call.
+// Keep the existing std::filesystem path object for the optional FGL URL, but
+// avoid the STL filesystem existence helper: recent MSVC STL builds can emit a direct
+// KERNEL32!CreateFile2 import for it, which is unavailable on Windows 7.
 static bool fileExistsWin7(const std::string &path) {
   return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-static std::string currentDirectoryWin7() {
-  char buffer[MAX_PATH];
-  const DWORD length = GetCurrentDirectoryA(static_cast<DWORD>(sizeof(buffer)), buffer);
-  if (length == 0) {
-    return ".";
-  }
-  if (length < sizeof(buffer)) {
-    return std::string(buffer, length);
-  }
-
-  std::string result(static_cast<size_t>(length) + 1, '\\0');
-  const DWORD secondLength = GetCurrentDirectoryA(
-      static_cast<DWORD>(result.size()), &result[0]);
-  if (secondLength == 0) {
-    return ".";
-  }
-  result.resize(secondLength);
-  return result;
-}
-
-static void appendPathWin7(std::string &base, const std::string &component) {
-  if (component.empty()) {
-    return;
-  }
-  const bool absolute =
-      component[0] == '\\' || component[0] == '/' ||
-      (component.size() >= 2 && component[1] == ':');
-  if (absolute) {
-    base = component;
-    return;
-  }
-  if (!base.empty() && base.back() != '\\' && base.back() != '/') {
-    base.push_back('\\');
-  }
-  base += component;
-}
-
-static std::string parentPathWin7(const std::string &path) {
-  const size_t separator = path.find_last_of("\\/");
-  if (separator == std::string::npos) {
-    return ".";
-  }
-  if (separator == 0) {
-    return path.substr(0, 1);
-  }
-  if (separator == 2 && path.size() >= 3 && path[1] == ':') {
-    return path.substr(0, 3);
-  }
-  return path.substr(0, separator);
-}
-
-static std::string fglUrl = currentDirectoryWin7();
+static std::filesystem::path fglUrl = std::filesystem::current_path();
 static HWND *WindowHandle = NULL;
 
 namespace lb {
@@ -632,7 +582,7 @@ void gameInit() {
   }
 
   if (config["patch"].count("fglUrl") == 1) {
-    appendPathWin7(fglUrl, config["patch"]["fglUrl"].get<std::string>());
+    fglUrl /= config["patch"]["fglUrl"].get<std::string>();
     WindowHandle =
         reinterpret_cast<HWND*>(sigScan("game", "useOfWindowHandle"));
     gameExeCheckHitboxPressSG = 
@@ -1306,12 +1256,10 @@ void handlePhoneMenuInputHook(void) {
         gameExeScrWork[6821] = *PhoneMenuUnk ? 0xFF : 0;
         *menuId = 6;
         break;
-      case 2: {
-        const std::string fglWorkingDirectory = parentPathWin7(fglUrl);
-        ShellExecuteA(*WindowHandle, "open", fglUrl.c_str(), NULL,
-                      fglWorkingDirectory.c_str(), SW_NORMAL);
+      case 2:
+        ShellExecute(*WindowHandle, _T("open"), fglUrl.c_str(), NULL,
+                     fglUrl.parent_path().c_str(), SW_NORMAL);
         break;
-      }
       case 3:
         gameExeScrWork[6843] = *PhoneMenuUnk ? 0xFF : 0;
         *menuId = 13;
