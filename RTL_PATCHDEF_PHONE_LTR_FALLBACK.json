@@ -1,0 +1,10 @@
+{
+  "base": {
+    "rtlDialogue": true,
+    "rtlDialogueRightX": 1200,
+    "rtlDialogueKeepNameLine": true,
+    "rtlPhone": false,
+    "rtlPhoneMultilineOnly": true,
+    "rtlPhoneRightX": 120
+  }
+}

@@ -5,6 +5,7 @@
 #include <list>
 #include <sstream>
 #include <vector>
+#include <unordered_set>
 #include <intrin.h>
 #include "Config.h"
 #include "Game.h"
@@ -398,9 +399,12 @@ static uintptr_t gameExePhoneMouseFixHookJmp3 = NULL;
 typedef struct {
   int dx, dy;
   int fontSize;
-  bool stripHarakat;
 } SingleLineOffset_t;
 static std::map<uintptr_t, SingleLineOffset_t> retAddrToSingleLineFixes;
+// SGHD backlog is routed through drawSingleTextLine. This allowlist is
+// deliberately separate from retAddrToSingleLineFixes: position-adjustment
+// callsites are not assumed to be backlog callsites.
+static std::unordered_set<uintptr_t> arabicHarakatStripSghdCallsites;
 
 typedef struct {
   float dx, dy;
@@ -872,6 +876,109 @@ static bool shouldStripArabicHarakatFromBacklog(uint16_t rawGlyph) {
   return classifyArabicHarakat(static_cast<int>(rawGlyph)) != HarakatKind::None;
 }
 
+static bool isOriginalSghdConfig() {
+  if (!config.is_object() || !config.contains("gamedef") ||
+      !config["gamedef"].is_object())
+    return false;
+  return config["gamedef"].value("drawGlyphVersion", std::string()) == "sghd" &&
+         config["gamedef"].value("gameName", std::string()) ==
+             "STEINS;GATE";
+}
+
+static bool isSghdClearlistCallsiteName(const std::string& name) {
+  // Keep the opt-in surface limited to the clearlist return signatures that
+  // are available in the SGHD gamedef. Never target every single-line caller.
+  static const char* const names[] = {
+      "clearlistDrawRet1",  "clearlistDrawRet2",  "clearlistDrawRet3",
+      "clearlistDrawRet4",  "clearlistDrawRet5",  "clearlistDrawRet6",
+      "clearlistDrawRet7",  "clearlistDrawRet8",  "clearlistDrawRet9",
+      "clearlistDrawRet10", "clearlistDrawRet11", "clearlistDrawRet12",
+      "clearlistDrawRet13"};
+  for (const char* candidate : names) {
+    if (name == candidate) return true;
+  }
+  return false;
+}
+
+// Copy an SGHD SC3 string without mutating the game's buffer. Only fixed-size
+// glyph tokens and controls understood by this source are traversed. The 0x04
+// SC3 evaluator is intentionally rejected here because it is variable-length;
+// on rejection the caller must use the original string unchanged. This is a
+// conservative experiment until a real SGHD backlog trace proves the callsite.
+static bool buildSghdHarakatStrippedSc3(const char* source,
+                                        std::vector<char>& filtered) {
+  filtered.clear();
+  if (source == nullptr) return false;
+
+  static const size_t kMaxScanBytes = 0x10000;
+  bool removedAny = false;
+  for (size_t offset = 0; offset < kMaxScanBytes;) {
+    const unsigned char byte = static_cast<unsigned char>(source[offset]);
+
+    // SC3 strings in this project terminate with -1; some buffers carry the
+    // second 0xFF as well. Preserve both terminator bytes exactly when present.
+    if (byte == 0xFFu) {
+      filtered.push_back(static_cast<char>(byte));
+      if (offset + 1 < kMaxScanBytes &&
+          static_cast<unsigned char>(source[offset + 1]) == 0xFFu) {
+        filtered.push_back(static_cast<char>(0xFFu));
+      }
+      return removedAny;
+    }
+
+    // SC3 uses NUL as a one-byte linebreak. Preserve it and continue so a
+    // multi-line backlog buffer is never truncated at its first linebreak.
+    if (byte == 0u) {
+      filtered.push_back(static_cast<char>(byte));
+      ++offset;
+      continue;
+    }
+
+    // These are the fixed-size controls handled by semiTokeniseSc3String.
+    if (byte == 0x09u || byte == 0x0Bu || byte == 0x1Eu) {
+      filtered.push_back(static_cast<char>(byte));
+      ++offset;
+      continue;
+    }
+
+    // 0x04 is a variable-length control evaluated by the game. Do not guess
+    // its byte count or remove anything around it; pass the original buffer.
+    if (byte == 0x04u) {
+      filtered.clear();
+      return false;
+    }
+
+    // Negative SC3 bytes encode a two-byte glyph token. 0xFF was handled above
+    // as the terminator, so 0x80..0xFE are the only valid glyph lead bytes here.
+    if (byte >= 0x80u) {
+      if (offset + 1 >= kMaxScanBytes) {
+        filtered.clear();
+        return false;
+      }
+      const uint16_t glyphId =
+          static_cast<uint16_t>(((byte & 0x7Fu) << 8) |
+                                static_cast<unsigned char>(source[offset + 1]));
+      if (ARABIC_HARAKAT_STRIP_SGHD_BACKLOG &&
+          classifyArabicHarakat(static_cast<int>(glyphId)) !=
+              HarakatKind::None) {
+        removedAny = true;
+      } else {
+        filtered.push_back(static_cast<char>(byte));
+        filtered.push_back(source[offset + 1]);
+      }
+      offset += 2;
+      continue;
+    }
+
+    // Unknown positive controls have no proven length in this codebase.
+    filtered.clear();
+    return false;
+  }
+
+  filtered.clear();
+  return false;
+}
+
 static int previousVisibleBacklogGlyphIndex(int index) {
   if (BacklogText == nullptr) return -1;
 
@@ -965,19 +1072,6 @@ static void applyArabicHarakatLayout(ProcessedSc3String_t& result) {
   }
 }
 
-static bool isSghdSteinsGateGameDefinition() {
-  if (!config.contains("gamedef") || !config["gamedef"].is_object())
-    return false;
-  const json& gamedef = config["gamedef"];
-  const std::string drawGlyphVersion =
-      gamedef.value("drawGlyphVersion", std::string());
-  const std::string gameName = gamedef.value("gameName", std::string());
-  // The SGHD reference gamedef identifies the original STEINS;GATE as
-  // drawGlyphVersion=sghd and gameName=STEINS;GATE. Do not rely on CC being
-  // enum value zero: that is only an implementation detail of this fork.
-  return drawGlyphVersion == "sghd" && gameName == "STEINS;GATE";
-}
-
 void gameTextInit() {
   if (config["gamedef"].count("dialoguePageVersion") == 1) {
     if (config["gamedef"]["dialoguePageVersion"].get<std::string>() == "rn") {
@@ -1032,6 +1126,11 @@ void gameTextInit() {
       config["patch"].value("arabicHarakatEnabled", false);
   ARABIC_HARAKAT_STRIP_BACKLOG =
       config["patch"].value("arabicHarakatStripBacklog", false);
+  // The SGHD path is opt-in and must not infer backlog semantics from every
+  // drawSingleTextLine caller. RN/RND keep their existing dedicated hooks.
+  ARABIC_HARAKAT_STRIP_SGHD_BACKLOG =
+      ARABIC_HARAKAT_ENABLED && ARABIC_HARAKAT_STRIP_BACKLOG &&
+      isOriginalSghdConfig();
   ARABIC_HARAKAT_UPPER_X =
       config["patch"].value("arabicHarakatUpperX", 0.0f);
   ARABIC_HARAKAT_UPPER_Y =
@@ -1093,6 +1192,10 @@ void gameTextInit() {
            << ", glyphXOffset=" << RTL_GLYPH_X_OFFSET
            << ", glyphYOffset=" << RTL_GLYPH_Y_OFFSET
            << ", harakatEnabled=" << (ARABIC_HARAKAT_ENABLED ? 1 : 0)
+           << ", harakatStripBacklog="
+           << (ARABIC_HARAKAT_STRIP_BACKLOG ? 1 : 0)
+           << ", harakatStripSghdBacklog="
+           << (ARABIC_HARAKAT_STRIP_SGHD_BACKLOG ? 1 : 0)
            << ", harakatUpperXY=" << ARABIC_HARAKAT_UPPER_X << ","
            << ARABIC_HARAKAT_UPPER_Y << ", harakatKasraXY="
            << ARABIC_HARAKAT_KASRA_X << "," << ARABIC_HARAKAT_KASRA_Y
@@ -1436,6 +1539,19 @@ void gameTextInit() {
         "game", "drawPhoneText", (uintptr_t*)&gameExeDrawPhoneText,
         (LPVOID)drawPhoneTextHook, (LPVOID*)&gameExeDrawPhoneTextReal);
   }
+  arabicHarakatStripSghdCallsites.clear();
+  std::unordered_set<std::string> requestedSghdHarakatCallsites;
+  if (ARABIC_HARAKAT_STRIP_SGHD_BACKLOG &&
+      config["patch"].contains("arabicHarakatStripSghdCallsites") &&
+      config["patch"]["arabicHarakatStripSghdCallsites"].is_array()) {
+    for (const json& value : config["patch"]["arabicHarakatStripSghdCallsites"]) {
+      if (!value.is_string()) continue;
+      const std::string name = value.get<std::string>();
+      if (isSghdClearlistCallsiteName(name))
+        requestedSghdHarakatCallsites.insert(name);
+    }
+  }
+
   // compatibility with old configs
   if (NEEDS_CLEARLIST_TEXT_POSITION_ADJUST) {
     static const char clearlistConfigText[] =
@@ -1457,56 +1573,8 @@ void gameTextInit() {
     const json clearlistConfig = json::parse(clearlistConfigText);
     json& arr = config["patch"]["singleTextLineFixes"];
     if (!arr.is_array()) arr = json::array();
-      arr.insert(arr.end(), clearlistConfig.begin(), clearlistConfig.end());
+    arr.insert(arr.end(), clearlistConfig.begin(), clearlistConfig.end());
   }
-
-  // STEINS;GATE uses the CC-style single-line renderer. The SGHD gamedef
-  // exposes clearlistDrawRet1..13 callsites, but it does not prove that every
-  // one is backlog-only. Require an explicit target list in patchdef instead
-  // of applying the strip to every drawSingleTextLine call in the game.
-  if (isSghdSteinsGateGameDefinition() && ARABIC_HARAKAT_ENABLED &&
-      ARABIC_HARAKAT_STRIP_BACKLOG) {
-    const auto targetNamesIter =
-        config["patch"].find("arabicHarakatStripSghdCallsites");
-    if (targetNamesIter != config["patch"].end() &&
-        targetNamesIter->is_array()) {
-      json& arr = config["patch"]["singleTextLineFixes"];
-      if (!arr.is_array()) arr = json::array();
-      for (const json& targetNameValue : *targetNamesIter) {
-        if (!targetNameValue.is_string()) continue;
-        const std::string sigName = targetNameValue.get<std::string>();
-        bool knownSghdClearlistTarget = false;
-        for (int i = 1; i <= 13; ++i) {
-          if (sigName == "clearlistDrawRet" + std::to_string(i)) {
-            knownSghdClearlistTarget = true;
-            break;
-          }
-        }
-        if (!knownSghdClearlistTarget) continue;
-        bool found = false;
-        for (json& item : arr) {
-          if (!item.is_object() || item.value("sigName", "") != sigName)
-            continue;
-          item["stripHarakat"] = true;
-          found = true;
-          break;
-        }
-        if (!found) {
-          arr.push_back({{"sigName", sigName},
-                         {"dx", 0},
-                         {"dy", 0},
-                         {"fontSize", 0},
-                         {"stripHarakat", true}});
-        }
-      }
-    } else {
-      LanguageBarrierLog(
-          "Arabic harakat SGHD backlog strip enabled, but no explicit "
-          "arabicHarakatStripSghdCallsites list was configured; no SGHD "
-          "single-line callsite will be stripped.");
-    }
-  }
-
   const auto& singleTextLineFixes = config["patch"].find("singleTextLineFixes");
   if (singleTextLineFixes != config["patch"].end() &&
       singleTextLineFixes->is_array()) {
@@ -1522,6 +1590,13 @@ void gameTextInit() {
       const std::string& sigName = sigNameIter->get<std::string>();
       uintptr_t targetPtr = sigScan("game", sigName.c_str());
       if (!targetPtr) continue;
+      if (ARABIC_HARAKAT_STRIP_SGHD_BACKLOG &&
+          requestedSghdHarakatCallsites.find(sigName) !=
+              requestedSghdHarakatCallsites.end()) {
+        // Only an explicitly named clearlist signature becomes an SGHD strip
+        // target. Position fixes remain independent from this allowlist.
+        arabicHarakatStripSghdCallsites.insert(targetPtr);
+      }
       SingleLineOffset_t& fix = retAddrToSingleLineFixes[targetPtr];
       auto iter = item.find("dx");
       if (iter != item.end() && iter->is_number_integer())
@@ -1538,7 +1613,12 @@ void gameTextInit() {
         fix.fontSize = iter->get<int>();
       else
         fix.fontSize = 0;
-      fix.stripHarakat = item.value("stripHarakat", false);
+    }
+    if (ARABIC_HARAKAT_STRIP_SGHD_BACKLOG) {
+      std::stringstream sghdStripLog;
+      sghdStripLog << "SGHD harakat backlog allowlist entries="
+                   << arabicHarakatStripSghdCallsites.size();
+      LanguageBarrierLog(sghdStripLog.str());
     }
   }
   const auto& spriteFixes = config["patch"].find("spriteFixes");
@@ -3894,73 +3974,6 @@ int __cdecl drawPhoneTextHook(int textureId, int xOffset, int yOffset,
 
 
 
-static bool stripArabicHarakatFromSc3String(
-    const char* input, signed int maxLength, std::vector<char>& output) {
-  output.clear();
-  if (input == nullptr || !ARABIC_HARAKAT_ENABLED ||
-      !ARABIC_HARAKAT_STRIP_BACKLOG)
-    return false;
-
-  // Opcode 0x04 has variable-length arguments evaluated by the game. Do not
-  // attempt to copy/skip an unknown command: leaving the original string is
-  // safer than corrupting a color or formatting command.
-  // maxLength is supplied by the game as a character/count-like bound, not
-  // a byte length. Allow room for known one-byte controls, but cap the scan so
-  // malformed input cannot make this helper walk indefinitely.
-  size_t scanLimit = 65536;
-  if (maxLength > 0) {
-    const size_t glyphBytes = static_cast<size_t>(maxLength) * 2;
-    scanLimit = glyphBytes > 65536 - 256 ? 65536 : glyphBytes + 256;
-  }
-  size_t index = 0;
-  bool changed = false;
-  while (index < scanLimit) {
-    const uint8_t first = static_cast<uint8_t>(input[index]);
-    if (first == 0x04) {
-      output.clear();
-      return false;
-    }
-    // SC3's parser stops at the first signed -1 byte. Preserve the optional
-    // second 0xFF commonly appended by SC3 buffers so the temporary string
-    // retains the same terminator representation as the source.
-    if (first == 0xFF) {
-      output.push_back(input[index]);
-      if (index + 1 < scanLimit &&
-          static_cast<uint8_t>(input[index + 1]) == 0xFF)
-        output.push_back(input[index + 1]);
-      return changed;
-    }
-    if (first == 0x00 || first == 0x09 || first == 0x0B || first == 0x1E) {
-      output.push_back(input[index++]);
-      continue;
-    }
-    // Every other non-glyph command may have arguments whose size is defined
-    // by the game evaluator. Refuse to rewrite it rather than guessing.
-    if ((first & 0x80u) == 0) {
-      output.clear();
-      return false;
-    }
-    if (index + 1 >= scanLimit) {
-      output.clear();
-      return false;
-    }
-
-    const uint16_t glyphId =
-        static_cast<uint16_t>(static_cast<uint8_t>(input[index + 1])) |
-        static_cast<uint16_t>((first & 0x7Fu) << 8);
-    if (shouldStripArabicHarakatFromBacklog(glyphId)) {
-      changed = true;
-    } else {
-      output.push_back(input[index]);
-      output.push_back(input[index + 1]);
-    }
-    index += 2;
-  }
-
-  output.clear();
-  return false;
-}
-
 signed int drawSingleTextLineHook(int textureId, int startX, signed int startY,
                                   unsigned int a4, char* string,
                                   signed int maxLength, int color,
@@ -3997,12 +4010,16 @@ signed int drawSingleTextLineHook(int textureId, int startX, signed int startY,
     if (fixIter->second.fontSize) glyphSize = fixIter->second.fontSize;
   }
 
-  std::vector<char> strippedString;
+  // SGHD-only experimental backlog filter. Do not change maxLength: its units
+  // are not proven here (glyphs versus bytes), and the original string remains
+  // the fallback whenever SC3 parsing is incomplete or unsafe.
+  std::vector<char> filteredSghdString;
   char* drawString = string;
-  if (fixIter != retAddrToSingleLineFixes.end() &&
-      fixIter->second.stripHarakat &&
-      stripArabicHarakatFromSc3String(string, maxLength, strippedString)) {
-    drawString = strippedString.data();
+  if (ARABIC_HARAKAT_STRIP_SGHD_BACKLOG &&
+      arabicHarakatStripSghdCallsites.find(retaddr) !=
+          arabicHarakatStripSghdCallsites.end() &&
+      buildSghdHarakatStrippedSc3(string, filteredSghdString)) {
+    drawString = filteredSghdString.data();
   }
   return gameExeDrawSingleTextLineReal(textureId, startX, startY, a4,
                                        drawString, maxLength, color, glyphSize,

@@ -1,0 +1,31 @@
+{
+  "patch": {
+    "arabicHarakatEnabled": false,
+    "arabicHarakatStripBacklog": false,
+    "arabicHarakatStripSghdCallsites": [
+      "clearlistDrawRet1",
+      "clearlistDrawRet2",
+      "clearlistDrawRet3",
+      "clearlistDrawRet4",
+      "clearlistDrawRet5",
+      "clearlistDrawRet6",
+      "clearlistDrawRet7",
+      "clearlistDrawRet8",
+      "clearlistDrawRet9",
+      "clearlistDrawRet10",
+      "clearlistDrawRet11",
+      "clearlistDrawRet12",
+      "clearlistDrawRet13"
+    ],
+    "arabicHarakatUpperX": 0,
+    "arabicHarakatUpperY": 0,
+    "arabicHarakatKasraX": 0,
+    "arabicHarakatKasraY": 0,
+    "arabicHarakatShaddaX": 0,
+    "arabicHarakatShaddaY": 0,
+    "arabicHarakatShaddaUpperX": 0,
+    "arabicHarakatShaddaUpperY": 0,
+    "arabicHarakatShaddaKasraX": 0,
+    "arabicHarakatShaddaKasraY": 0
+  }
+}

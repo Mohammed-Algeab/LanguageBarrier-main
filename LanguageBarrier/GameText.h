@@ -66,9 +66,12 @@ LB_GLOBAL float CC_BACKLOG_HIGHLIGHT_YOFFSET_SHIFT;
 // Optional Arabic harakat layout. Disabled by default so existing RTL, dialogue,
 // phone, mail, and backlog behavior remains unchanged unless explicitly enabled.
 LB_GLOBAL bool ARABIC_HARAKAT_ENABLED;
-// Backlog uses a separate renderer in RN/RND games. When enabled, known
-// harakat glyphs are skipped there instead of being laid out or drawn.
+// Master switch for omitting configured harakat glyphs from backlog paths.
+// RN/RND use their existing dedicated backlog renderers. SGHD is separate:
+// its experimental path is enabled only for STEINS;GATE and an explicit
+// arabicHarakatStripSghdCallsites allowlist of clearlist return signatures.
 LB_GLOBAL bool ARABIC_HARAKAT_STRIP_BACKLOG;
+LB_GLOBAL bool ARABIC_HARAKAT_STRIP_SGHD_BACKLOG;
 LB_GLOBAL float ARABIC_HARAKAT_UPPER_X;
 LB_GLOBAL float ARABIC_HARAKAT_UPPER_Y;
 LB_GLOBAL float ARABIC_HARAKAT_KASRA_X;

@@ -56,14 +56,14 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='dinput8-Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='cryptbase-Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -129,16 +129,14 @@
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='dinput8-Release|Win32'">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <VcpkgTriplet>$(VcpkgUserTriplet)</VcpkgTriplet>
-    <VcpkgUseStatic>false</VcpkgUseStatic>
-    <VcpkgUseMD>false</VcpkgUseMD>
-    <VcpkgAdditionalInstallOptions>--overlay-triplets="$(VcpkgManifestRoot)\triplets" $(VcpkgAdditionalInstallOptions)</VcpkgAdditionalInstallOptions>
+    <VcpkgUseStatic>true</VcpkgUseStatic>
+    <VcpkgUseMD>true</VcpkgUseMD>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='cryptbase-Release|Win32'">
     <VcpkgConfiguration>Release</VcpkgConfiguration>
     <VcpkgTriplet>$(VcpkgUserTriplet)</VcpkgTriplet>
-    <VcpkgUseStatic>false</VcpkgUseStatic>
-    <VcpkgUseMD>false</VcpkgUseMD>
-    <VcpkgAdditionalInstallOptions>--overlay-triplets="$(VcpkgManifestRoot)\triplets" $(VcpkgAdditionalInstallOptions)</VcpkgAdditionalInstallOptions>
+    <VcpkgUseStatic>true</VcpkgUseStatic>
+    <VcpkgUseMD>true</VcpkgUseMD>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='dinput8-Debug|Win32'">
     <VcpkgConfiguration>Debug</VcpkgConfiguration>
@@ -283,8 +281,8 @@ endlocal</Command>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;LANGUAGEBARRIER_EXPORTS;WINVER=0x0601;_WIN32_WINNT=0x0601;NTDDI_VERSION=0x06010000;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;LANGUAGEBARRIER_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>MaxSpeed</Optimization>
       <WholeProgramOptimization>false</WholeProgramOptimization>
@@ -293,7 +291,6 @@ endlocal</Command>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>d3d9.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;dbghelp.lib;shlwapi.lib;VSFilter.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
@@ -321,8 +318,8 @@ endlocal</Command>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;LANGUAGEBARRIER_EXPORTS;WINVER=0x0601;_WIN32_WINNT=0x0601;NTDDI_VERSION=0x06010000;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;LANGUAGEBARRIER_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>MaxSpeed</Optimization>
       <WholeProgramOptimization>false</WholeProgramOptimization>
@@ -330,7 +327,6 @@ endlocal</Command>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>d3d9.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;dbghelp.lib;shlwapi.lib;VSFilter.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
@@ -412,7 +408,6 @@ endlocal</Command>
     <None Include="..\.gitignore" />
     <None Include="..\vcpkg-configuration.json" />
     <None Include="..\vcpkg.json" />
-    <None Include="harakat-sghd-example.json" />
     <None Condition="'$(Configuration)'=='cryptbase-Debug' Or '$(Configuration)'=='cryptbase-Release'" Include="cryptbase.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,0 +1,6 @@
+{
+  "patch": {
+    "textLayoutDiagnosticLog": true,
+    "textLayoutDiagnosticMaxEvents": 80
+  }
+}

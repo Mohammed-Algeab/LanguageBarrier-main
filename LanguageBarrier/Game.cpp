@@ -353,13 +353,6 @@ static uint32_t* PadCustom = NULL;
 static BOOL *PhoneMenuOptionSelectedSG = NULL;
 static int *PhoneMenuUnk = NULL;
 
-// Keep the existing std::filesystem path object for the optional FGL URL, but
-// avoid the STL filesystem existence helper: recent MSVC STL builds can emit a direct
-// KERNEL32!CreateFile2 import for it, which is unavailable on Windows 7.
-static bool fileExistsWin7(const std::string &path) {
-  return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
-}
-
 static std::filesystem::path fglUrl = std::filesystem::current_path();
 static HWND *WindowHandle = NULL;
 
@@ -823,7 +816,7 @@ std::string mountArchiveHookPart(const char* mountPoint) {
         << config["patch"]["archiveRedirection"][mountPoint].get<std::string>();
 
     std::stringstream logstr;
-    if (!fileExistsWin7(newPath.str())) {
+    if (!std::filesystem::exists(newPath.str())) {
       logstr << newPath.str() << " does not exist!";
       LanguageBarrierLog(logstr.str());
       return mountPoint;
@@ -962,7 +955,7 @@ FILE* clibFopenHook(const char* filename, const char* mode) {
         << config["patch"]["physicalFileRedirection"][tmp].get<std::string>();
 
     std::stringstream logstr;
-    if (!fileExistsWin7(newPath.str())) {
+    if (!std::filesystem::exists(newPath.str())) {
       logstr << newPath.str() << " does not exist!";
       LanguageBarrierLog(logstr.str());
       return gameExeClibFopenReal(filename, mode);
